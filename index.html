@@ -42,14 +42,11 @@
         </button>
       </header>
 
-      <div class="map-preview" aria-hidden="true">
-        <div class="map-preview__grid"></div>
-        <div class="map-preview__pin">
-          <span class="pulse"></span>
-        </div>
+      <div class="map-preview" id="map-container">
+        <div id="map" class="map-preview__canvas" role="region" aria-label="현재 위치 지도"></div>
         <div class="map-preview__label">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-4.5-7-10a7 7 0 1 1 14 0c0 5.5-7 10-7 10z"/><circle cx="12" cy="11" r="2.5"/></svg>
-          현재 위치 · 부산 남구 대연동
+          <span id="map-location-label">현재 위치 · 부산 남구 대연동</span>
         </div>
       </div>
 
@@ -129,13 +126,14 @@
           <div class="route-inputs__fields">
             <div class="input-row">
               <label class="sr-only" for="origin">출발지</label>
-              <input type="text" id="origin" class="route-input" value="현재 위치 · 부산 남구 대연동" placeholder="출발지 입력">
-              <button class="chip-btn" type="button">현위치</button>
+              <input type="text" id="origin" class="route-input" value="위치 확인 중…" placeholder="출발지 입력" readonly>
+              <button class="chip-btn" type="button" id="btn-locate">현위치</button>
             </div>
-            <div class="input-row">
+            <div class="input-row input-row--destination">
               <label class="sr-only" for="destination">도착지</label>
               <input type="text" id="destination" class="route-input route-input--focus" placeholder="도착지를 입력하세요" autocomplete="off">
             </div>
+            <ul class="place-autocomplete" id="place-autocomplete" role="listbox" hidden></ul>
           </div>
         </div>
 
@@ -150,7 +148,7 @@
           </ul>
         </div>
 
-        <button class="btn btn--primary btn--full" type="button" id="search-submit" data-nav="routes">
+        <button class="btn btn--primary btn--full" type="button" id="search-submit">
           경로 찾기
         </button>
       </div>
@@ -198,6 +196,13 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
         </button>
       </header>
+
+      <div class="map-preview map-preview--route" id="route-map-container">
+        <div id="route-map" class="map-preview__canvas" role="region" aria-label="경로 지도"></div>
+        <div class="map-preview__label map-preview__label--route">
+          <span id="route-map-label">출발지 → 목적지</span>
+        </div>
+      </div>
 
       <div class="route-options">
         <button class="route-option route-option--active" type="button" data-route="best">
@@ -454,6 +459,7 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </div>
 
+  <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=296c5ade868479775159b17f059f53e0&libraries=services&autoload=false"></script>
   <script src="script.js"></script>
 </body>
 </html>
