@@ -1,6 +1,11 @@
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from http.server import BaseHTTPRequestHandler
 
-from _http import parse_query, qfloat, qstr, send_json
+from api_helpers import parse_query, qfloat, qstr, send_json
 from transit_service import HOME_DEFAULT, get_service
 
 

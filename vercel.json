@@ -1,8 +1,16 @@
 {
-  "version": 2,
   "functions": {
-    "api/**/*.py": {
-      "runtime": "python3.12"
+    "api/health.py": {
+      "includeFiles": "{transit_service.py,api_helpers.py,requirements.txt}"
+    },
+    "api/realtime.py": {
+      "includeFiles": "{transit_service.py,api_helpers.py,requirements.txt}"
+    },
+    "api/analysis.py": {
+      "includeFiles": "{transit_service.py,api_helpers.py,requirements.txt}"
+    },
+    "api/route.py": {
+      "includeFiles": "{transit_service.py,api_helpers.py,requirements.txt}"
     }
   }
 }

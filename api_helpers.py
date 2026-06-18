@@ -1,12 +1,5 @@
 import json
-import os
-import sys
-import traceback
 from urllib.parse import parse_qs, urlparse
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 def parse_query(path):
@@ -32,20 +25,3 @@ def send_json(handler, status, payload):
     handler.send_header("Access-Control-Allow-Origin", "*")
     handler.end_headers()
     handler.wfile.write(body)
-
-
-def handle_errors(fn):
-    def wrapper(handler):
-        try:
-            fn(handler)
-        except Exception as exc:
-            send_json(
-                handler,
-                500,
-                {
-                    "error": str(exc),
-                    "trace": traceback.format_exc()[:500],
-                },
-            )
-
-    return wrapper

@@ -1,8 +1,12 @@
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler
 
-from _http import send_json
-from transit_service import get_service
+from api_helpers import send_json
 
 
 class handler(BaseHTTPRequestHandler):
