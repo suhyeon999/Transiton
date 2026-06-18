@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.Python
+.env
+.env.local
+.venv/
+venv/
+.DS_Store
+.vercel/
+*.log
