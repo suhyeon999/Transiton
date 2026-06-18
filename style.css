@@ -704,11 +704,11 @@ ul {
   font-size: 0.82rem;
 }
 
-.search-panel {
+.search-tab-panel {
   display: none;
 }
 
-.search-panel--active {
+.search-tab-panel--active {
   display: block;
 }
 

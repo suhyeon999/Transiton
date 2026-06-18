@@ -477,12 +477,26 @@
       if (!target) return;
 
       if (target === "routes") {
-        const query = destinationInput?.value.trim() || state.destination;
-        if (query && (!locationState.destination || locationState.destination.name !== query)) {
-          const ok = await setDestination(query);
-          if (!ok) return;
+        const query = destinationInput?.value.trim();
+        const destQuery =
+          query ||
+          (locationState.destination?.name !== DEFAULT_ROUTE_LABEL
+            ? locationState.destination?.name
+            : "");
+        if (
+          destQuery &&
+          (!locationState.destination || locationState.destination.name !== destQuery)
+        ) {
+          const ok = await setDestination(destQuery);
+          if (!ok) {
+            showView("search");
+            return;
+          }
         } else if (locationState.destination) {
           computeRoute();
+        } else {
+          showView("search");
+          return;
         }
       }
 
@@ -2131,8 +2145,8 @@
     tab.addEventListener("click", () => {
       const key = tab.dataset.searchTab;
       document.querySelectorAll("[data-search-tab]").forEach((t) => t.classList.toggle("tab--active", t === tab));
-      document.getElementById("search-panel-history")?.classList.toggle("search-panel--active", key === "history");
-      document.getElementById("search-panel-frequent")?.classList.toggle("search-panel--active", key === "frequent");
+      document.getElementById("search-panel-history")?.classList.toggle("search-tab-panel--active", key === "history");
+      document.getElementById("search-panel-frequent")?.classList.toggle("search-tab-panel--active", key === "frequent");
     });
   });
 
