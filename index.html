@@ -459,7 +459,10 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </div>
 
-  <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=296c5ade868479775159b17f059f53e0&libraries=services&autoload=false"></script>
+  <script
+    src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=296c5ade868479775159b17f059f53e0&libraries=services&autoload=false"
+    onerror="console.error('[TransitON] Kakao Maps SDK 스크립트 로드 실패')"
+  ></script>
   <script src="script.js"></script>
 </body>
 </html>

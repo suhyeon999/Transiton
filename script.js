@@ -20,6 +20,8 @@
   const kakaoReady = new Promise((resolve) => {
     kakaoReadyResolve = resolve;
   });
+  let kakaoServicesReady = false;
+  const PLACES_MAX_RADIUS = 20000;
 
   const mapLayers = {
     home: { markers: [], lines: [], overlays: [] },
@@ -149,6 +151,18 @@
 
   function whenKakaoReady() {
     return kakaoReady;
+  }
+
+  function ensureKakaoServices() {
+    if (!kakaoServicesReady || !places || !geocoder || !window.kakao?.maps) {
+      const err = new Error("KAKAO_NOT_READY");
+      err.code = "KAKAO_NOT_READY";
+      throw err;
+    }
+  }
+
+  function isValidCoord(lat, lng) {
+    return Number.isFinite(lat) && Number.isFinite(lng);
   }
 
   let toastTimer;
@@ -405,18 +419,28 @@
     const dest = locationState.destination;
     const straightDist = haversineM(origin, dest);
 
-    let routePath = [toLatLng(origin), toLatLng(dest)];
+    let routePath = null;
     let distance = straightDist;
     let durationMin = Math.max(5, Math.ceil(straightDist / 400));
 
-    await whenKakaoReady();
-    const driving = await requestDrivingRoute(origin, dest);
-    if (driving?.path?.length) {
-      routePath = driving.path;
-      distance = driving.distance || straightDist;
-      durationMin = driving.durationSec
-        ? Math.ceil(driving.durationSec / 60)
-        : Math.max(5, Math.ceil(distance / 400));
+    try {
+      await whenKakaoReady();
+      if (window.kakao?.maps?.LatLng) {
+        routePath = [toLatLng(origin), toLatLng(dest)];
+      }
+      const driving = await requestDrivingRoute(origin, dest);
+      if (driving?.path?.length) {
+        routePath = driving.path;
+        distance = driving.distance || straightDist;
+        durationMin = driving.durationSec
+          ? Math.ceil(driving.durationSec / 60)
+          : Math.max(5, Math.ceil(distance / 400));
+      }
+    } catch (err) {
+      console.warn("경로 계산 보조 실패 — 직선 거리로 표시:", err);
+      if (window.kakao?.maps?.LatLng) {
+        routePath = [toLatLng(origin), toLatLng(dest)];
+      }
     }
 
     const fare = estimateFare(distance);
@@ -507,7 +531,7 @@
     }
   }
 
-  /* ---- Search & Geocoding ---- */
+  /* ---- Search & Geocoding (Kakao Places + Geocoder) ---- */
 
   function hideAutocomplete() {
     if (placeAutocomplete) {
@@ -517,67 +541,123 @@
   }
 
   function parseGeocodeItem(item, fallbackName) {
+    const lat = parseFloat(item.y);
+    const lng = parseFloat(item.x);
+    if (!isValidCoord(lat, lng)) return null;
     return {
-      lat: parseFloat(item.y),
-      lng: parseFloat(item.x),
+      lat,
+      lng,
       name: fallbackName,
       address: item.address_name || item.road_address?.address_name || fallbackName,
     };
   }
 
   function parsePlaceItem(item) {
+    const lat = parseFloat(item.y);
+    const lng = parseFloat(item.x);
+    if (!isValidCoord(lat, lng)) return null;
     return {
-      lat: parseFloat(item.y),
-      lng: parseFloat(item.x),
+      lat,
+      lng,
       name: item.place_name,
       address: item.road_address_name || item.address_name || item.place_name,
     };
   }
 
-  function searchPlaces(keyword) {
+  /** Kakao Places keywordSearch — 결과 배열 반환 (실패 시 reject) */
+  function placesKeywordSearch(keyword, options) {
     return new Promise((resolve, reject) => {
+      ensureKakaoServices();
       places.keywordSearch(
         keyword,
         (data, status) => {
-          if (status === kakao.maps.services.Status.OK && data.length) {
-            resolve(parsePlaceItem(data[0]));
+          if (status === kakao.maps.services.Status.OK && data?.length) {
+            const parsed = data.map(parsePlaceItem).filter(Boolean);
+            if (parsed.length) resolve(parsed);
+            else reject(new Error("INVALID_COORDS"));
           } else {
-            reject(new Error("not found"));
+            reject(new Error(`PLACES_${status}`));
           }
         },
-        { location: toLatLng(locationState.current), radius: 30000 }
+        options
       );
     });
   }
 
-  function searchAddress(keyword) {
+  function geocoderAddressSearch(keyword) {
     return new Promise((resolve, reject) => {
+      ensureKakaoServices();
       geocoder.addressSearch(keyword, (result, status) => {
-        if (status === kakao.maps.services.Status.OK && result.length) {
-          resolve(parseGeocodeItem(result[0], keyword));
+        if (status === kakao.maps.services.Status.OK && result?.length) {
+          const parsed = parseGeocodeItem(result[0], keyword);
+          if (parsed) resolve(parsed);
+          else reject(new Error("INVALID_COORDS"));
         } else {
-          reject(new Error("not found"));
+          reject(new Error(`GEOCODER_${status}`));
         }
       });
     });
   }
 
+  /**
+   * 목적지 검색: Places 우선 → Geocoder 보조
+   * 첫 번째 유효 결과 반환
+   */
   async function geocodeDestination(keyword) {
     await whenKakaoReady();
-    const queries = [keyword, `부산 ${keyword}`];
+    ensureKakaoServices();
+
+    const queries = [...new Set([keyword, `부산 ${keyword}`, `${keyword} 부산`])];
+    const busanCenter = toLatLng(MAP_CENTER);
+
+    // 1) Places — 전국 검색 (옵션 없음)
     for (const query of queries) {
       try {
-        return await searchPlaces(query);
-      } catch {
-        /* continue */
-      }
-      try {
-        return await searchAddress(query);
-      } catch {
-        /* continue */
+        const results = await placesKeywordSearch(query);
+        return results[0];
+      } catch (err) {
+        console.debug("[Places 전국]", query, err.message);
       }
     }
-    throw new Error("not found");
+
+    // 2) Places — 부산 중심 반경 검색 (radius 최대 20km)
+    for (const query of queries) {
+      try {
+        const results = await placesKeywordSearch(query, {
+          location: busanCenter,
+          radius: PLACES_MAX_RADIUS,
+        });
+        return results[0];
+      } catch (err) {
+        console.debug("[Places 부산]", query, err.message);
+      }
+    }
+
+    // 3) Places — 현재 위치 기준 반경 검색
+    for (const query of queries) {
+      try {
+        const results = await placesKeywordSearch(query, {
+          location: toLatLng(locationState.current),
+          radius: PLACES_MAX_RADIUS,
+        });
+        return results[0];
+      } catch (err) {
+        console.debug("[Places 현위치]", query, err.message);
+      }
+    }
+
+    // 4) Geocoder — 주소 검색
+    for (const query of queries) {
+      try {
+        return await geocoderAddressSearch(query);
+      } catch (err) {
+        console.debug("[Geocoder]", query, err.message);
+      }
+    }
+
+    const err = new Error("NOT_FOUND");
+    err.code = "NOT_FOUND";
+    throw err;
   }
 
   function saveRecentSearch(name) {
@@ -614,6 +694,7 @@
         hideAutocomplete();
         saveRecentSearch(item.name);
         updateRouteSummary();
+        updateMapRoute();
         await computeRoute();
         showToast(`${item.name}(으)로 설정했습니다`);
       });
@@ -625,19 +706,16 @@
       hideAutocomplete();
       return;
     }
-    whenKakaoReady().then(() => {
-      places.keywordSearch(
-        keyword,
-        (data, status) => {
-          if (status !== kakao.maps.services.Status.OK) {
-            hideAutocomplete();
-            return;
-          }
-          showAutocompleteResults(data.map(parsePlaceItem));
-        },
-        { location: toLatLng(locationState.current), radius: 30000 }
-      );
-    });
+    whenKakaoReady()
+      .then(() => {
+        ensureKakaoServices();
+        return placesKeywordSearch(keyword, {
+          location: toLatLng(locationState.current),
+          radius: PLACES_MAX_RADIUS,
+        });
+      })
+      .then((results) => showAutocompleteResults(results))
+      .catch(() => hideAutocomplete());
   }
 
   async function setDestination(keyword, options = {}) {
@@ -649,23 +727,39 @@
       return false;
     }
 
+    let dest;
     try {
       if (!silent) showToast("목적지를 검색 중…");
-      const dest = await geocodeDestination(query);
-      locationState.destination = dest;
-      state.destination = dest.name;
-      if (destinationInput) destinationInput.value = dest.name;
-      hideAutocomplete();
-      saveRecentSearch(dest.name);
-      updateRouteSummary();
-      await computeRoute();
-      if (!silent) showToast(`${dest.name}(으)로 경로를 설정했습니다`);
-      if (navigate) showView("routes");
-      return true;
-    } catch {
-      if (!silent) showToast("목적지를 찾을 수 없습니다");
+      dest = await geocodeDestination(query);
+    } catch (err) {
+      console.error("[목적지 검색 실패]", query, err);
+      if (!silent) {
+        if (err.code === "KAKAO_NOT_READY" || err.message === "KAKAO_NOT_READY") {
+          showToast("카카오맵 API 로드 실패 — http:// 접속·도메인 등록 확인");
+        } else {
+          showToast("목적지를 찾을 수 없습니다");
+        }
+      }
       return false;
     }
+
+    locationState.destination = dest;
+    state.destination = dest.name;
+    if (destinationInput) destinationInput.value = dest.name;
+    hideAutocomplete();
+    saveRecentSearch(dest.name);
+    updateRouteSummary();
+    updateMapRoute();
+
+    try {
+      await computeRoute();
+    } catch (routeErr) {
+      console.warn("[경로 계산]", routeErr);
+    }
+
+    if (!silent) showToast(`${dest.name}(으)로 경로를 설정했습니다`);
+    if (navigate) showView("routes");
+    return true;
   }
 
   document.querySelectorAll(".suggestion-item").forEach((btn) => {
@@ -748,6 +842,9 @@
   /* ---- Kakao Map ---- */
 
   function toLatLng(point) {
+    if (!window.kakao?.maps?.LatLng) {
+      throw new Error("KAKAO_NOT_READY");
+    }
     return new kakao.maps.LatLng(point.lat, point.lng);
   }
 
@@ -885,7 +982,9 @@
 
   function initKakaoMap() {
     if (!window.kakao?.maps) {
-      console.warn("Kakao Maps SDK 로드 실패");
+      console.error(
+        "[TransitON] Kakao Maps SDK 로드 실패 — JavaScript 키, 플랫폼 도메인, http:// 접속 여부를 확인하세요."
+      );
       updateOriginField();
       kakaoReadyResolve?.();
       requestCurrentLocation(false);
@@ -893,18 +992,26 @@
     }
 
     kakao.maps.load(function () {
-      geocoder = new kakao.maps.services.Geocoder();
-      places = new kakao.maps.services.Places();
-      if (kakao.maps.services.Directions) {
-        directions = new kakao.maps.services.Directions();
+      try {
+        geocoder = new kakao.maps.services.Geocoder();
+        places = new kakao.maps.services.Places();
+        if (kakao.maps.services.Directions) {
+          directions = new kakao.maps.services.Directions();
+        }
+        kakaoServicesReady = true;
+        console.info("[TransitON] Kakao Maps SDK · Places · Geocoder 준비 완료");
+
+        kakaoMap = createMap("map", locationState.current);
+        kakaoMap.relayout();
+        kakaoReadyResolve();
+
+        requestCurrentLocation(false);
+        setDestination(state.destination, { silent: true });
+      } catch (err) {
+        console.error("[TransitON] Kakao 서비스 초기화 실패:", err);
+        kakaoServicesReady = false;
+        kakaoReadyResolve?.();
       }
-
-      kakaoMap = createMap("map", locationState.current);
-      kakaoMap.relayout();
-      kakaoReadyResolve();
-
-      requestCurrentLocation(false);
-      setDestination(state.destination, { silent: true });
     });
   }
 
