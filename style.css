@@ -1294,6 +1294,10 @@ ul {
   color: var(--primary-dark);
 }
 
+.info-banner[hidden] {
+  display: none !important;
+}
+
 .info-banner svg {
   width: 18px;
   height: 18px;

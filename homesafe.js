@@ -133,7 +133,9 @@
 
   function showConfigBanner(show) {
     const banner = document.getElementById("homesafe-config-banner");
-    if (banner) banner.hidden = !show;
+    if (!banner) return;
+    banner.hidden = !show;
+    banner.style.display = show ? "" : "none";
   }
 
   async function ensureUser() {

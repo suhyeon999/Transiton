@@ -79,3 +79,11 @@ create policy "group_members_all" on group_members for all using (true) with che
 create policy "safe_tracking_all" on safe_tracking for all using (true) with check (true);
 
 alter table safe_tracking replica identity full;
+
+-- anon/authenticated 역할에 테이블 접근 권한 (없으면 "permission denied for table users")
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on users to anon, authenticated;
+grant select, insert, update, delete on friends to anon, authenticated;
+grant select, insert, update, delete on groups to anon, authenticated;
+grant select, insert, update, delete on group_members to anon, authenticated;
+grant select, insert, update, delete on safe_tracking to anon, authenticated;
