@@ -58,6 +58,10 @@
   let goldenWalkOverlays = { markers: [], lines: [] };
   let lastGoldenBoard = null;
   let appLoadingCount = 0;
+  let geoWatchId = null;
+  let lastAppliedGeoMs = 0;
+  let locationRequestInFlight = false;
+  const GEO_APPLY_MIN_MS = 3000;
 
   document.addEventListener("securitypolicyviolation", (e) => {
     if (!e.blockedURI?.includes("dapi.kakao.com") && !e.sourceFile?.includes("sdk.js")) return;
@@ -412,7 +416,7 @@
   };
 
   const locationState = {
-    current: { ...MAP_CENTER, source: "fallback" },
+    current: { ...MAP_CENTER, source: "pending" },
     destination: null,
   };
 
@@ -455,18 +459,25 @@
     });
     window.scrollTo(0, 0);
 
-    if (viewName === "home") relayoutMap();
+    if (viewName === "home") {
+      relayoutMap();
+      requestCurrentLocation(false, true);
+    }
+    if (viewName === "search") {
+      renderSearchPanels();
+      requestCurrentLocation(false, true);
+    }
     if (viewName === "routes") {
-      initRouteMap();
-      updateRouteSummary();
-      updateMapRoute();
-      relayoutRouteMap();
-      if (locationState.destination && !state.routeInfo) {
-        computeRoute();
-      }
+      requestCurrentLocation(false, true).then(() => {
+        initRouteMap();
+        updateMapRoute();
+        relayoutRouteMap();
+        if (locationState.destination && !state.routeInfo) {
+          computeRoute();
+        }
+      });
     }
     if (viewName === "realtime") loadRealtimeData();
-    if (viewName === "search") renderSearchPanels();
     if (viewName === "golden") {
       startGoldenClock();
       renderGoldenSavedPlaces();
@@ -537,8 +548,11 @@
 
   function updateOriginField() {
     if (!originInput) return;
-    const prefix = locationState.current.source === "gps" ? "현재 위치" : "기본 위치";
-    originInput.value = `${prefix} · ${shortLabel(locationState.current.label)}`;
+    if (locationState.current.source === "pending") {
+      originInput.value = "현재 위치 확인 중…";
+      return;
+    }
+    originInput.value = `현재 위치 · ${shortLabel(locationState.current.label)}`;
   }
 
   function shortLabel(text) {
@@ -2024,6 +2038,9 @@
     clearRouteLiveTimer();
 
     try {
+    if (locationState.current.source !== "gps") {
+      await requestCurrentLocation(false, true);
+    }
     const origin = locationState.current;
     const dest = locationState.destination;
     const straightDist = haversineM(origin, dest);
@@ -2530,7 +2547,7 @@
   });
 
   document.getElementById("btn-locate")?.addEventListener("click", () => {
-    requestCurrentLocation(true);
+    requestCurrentLocation(true, true);
   });
 
   destinationInput?.addEventListener("input", () => {
@@ -2661,10 +2678,11 @@
     if (!kakaoMap) return;
     renderMapLayer(kakaoMap, "home");
     if (mapLocationLabel) {
-      mapLocationLabel.textContent =
-        locationState.current.source === "gps"
-          ? `현재 위치 · ${shortLabel(locationState.current.label)}`
-          : `기본 위치 · ${shortLabel(locationState.current.label)}`;
+      if (locationState.current.source === "pending") {
+        mapLocationLabel.textContent = "현재 위치 확인 중…";
+      } else {
+        mapLocationLabel.textContent = `현재 위치 · ${shortLabel(locationState.current.label)}`;
+      }
     }
     if (routeMap && state.currentView === "routes") {
       renderMapLayer(routeMap, "route");
@@ -2672,9 +2690,17 @@
   }
 
   async function applyCurrentLocation(point, source) {
+    const now = Date.now();
+    if (source === "gps" && locationState.current.source === "gps") {
+      const moved = haversineM(locationState.current, point);
+      if (moved < 12 && now - lastAppliedGeoMs < GEO_APPLY_MIN_MS) return;
+    }
+    lastAppliedGeoMs = now;
+
     locationState.current = { ...point, source };
     updateOriginField();
     updateRouteSummary();
+    updateMapRoute();
     await loadNearbyStops();
     if (state.currentView === "routes" && locationState.destination) {
       await computeRoute();
@@ -2682,10 +2708,8 @@
   }
 
   function reverseGeocodeCurrent(lat, lng) {
-    if (!geocoder) {
-      applyCurrentLocation({ lat, lng, label: "현재 위치" }, "gps");
-      return;
-    }
+    applyCurrentLocation({ lat, lng, label: "현재 위치" }, "gps");
+    if (!geocoder) return;
     geocoder.coord2Address(lng, lat, (result, status) => {
       let label = "현재 위치";
       if (status === kakao.maps.services.Status.OK && result[0]) {
@@ -2696,29 +2720,72 @@
     });
   }
 
-  function requestCurrentLocation(showFeedback) {
-    const btn = document.getElementById("btn-locate");
-    if (btn) btn.disabled = true;
+  function geoOptions(fresh) {
+    return {
+      enableHighAccuracy: true,
+      timeout: fresh ? 20000 : 12000,
+      maximumAge: fresh ? 0 : 20000,
+    };
+  }
 
-    if (!navigator.geolocation) {
-      applyCurrentLocation({ ...MAP_CENTER }, "fallback");
-      if (showFeedback) showToast("Geolocation 미지원 — 기본 위치 사용");
-      if (btn) btn.disabled = false;
-      return;
+  function requestCurrentLocation(showFeedback, fresh = false) {
+    if (locationRequestInFlight) {
+      return Promise.resolve(locationState.current);
     }
 
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
+    const btn = document.getElementById("btn-locate");
+    if (btn) btn.disabled = true;
+    locationRequestInFlight = true;
+
+    return new Promise((resolve) => {
+      const finish = (point, source) => {
+        locationRequestInFlight = false;
+        if (btn) btn.disabled = false;
+        if (point) applyCurrentLocation(point, source);
+        resolve(locationState.current);
+      };
+
+      if (!navigator.geolocation) {
+        if (showFeedback) showToast("Geolocation 미지원 — 기본 위치 사용");
+        finish({ ...MAP_CENTER, label: MAP_CENTER.label }, "fallback");
+        return;
+      }
+
+      const onSuccess = (pos) => {
         reverseGeocodeCurrent(pos.coords.latitude, pos.coords.longitude);
         if (showFeedback) showToast("현재 위치를 불러왔습니다");
+        locationRequestInFlight = false;
         if (btn) btn.disabled = false;
-      },
-      () => {
-        applyCurrentLocation({ ...MAP_CENTER }, "fallback");
-        if (showFeedback) showToast("위치 권한 실패 — 기본 좌표 사용");
-        if (btn) btn.disabled = false;
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+        resolve(locationState.current);
+      };
+
+      const onFinalError = () => {
+        if (showFeedback) showToast("위치 권한을 허용해 주세요");
+        finish({ ...MAP_CENTER, label: MAP_CENTER.label }, "fallback");
+      };
+
+      const onFirstError = () => {
+        navigator.geolocation.getCurrentPosition(
+          onSuccess,
+          onFinalError,
+          { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
+        );
+      };
+
+      navigator.geolocation.getCurrentPosition(
+        onSuccess,
+        onFirstError,
+        geoOptions(fresh)
+      );
+    });
+  }
+
+  function startLocationWatch() {
+    if (!navigator.geolocation || geoWatchId != null) return;
+    geoWatchId = navigator.geolocation.watchPosition(
+      (pos) => reverseGeocodeCurrent(pos.coords.latitude, pos.coords.longitude),
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 }
     );
   }
 
@@ -2962,7 +3029,7 @@
       logKakao("부트스트랩 성공", { at: "script.js:bootstrapKakao:done" });
 
       kakaoReadyResolve(true);
-      requestCurrentLocation(false);
+      requestCurrentLocation(false, true).then(() => startLocationWatch());
       await checkApiHealth();
     } catch (err) {
       kakaoBootstrapError = err instanceof Error ? err : makeKakaoError(String(err), "script.js:bootstrapKakao");
@@ -2972,9 +3039,19 @@
       showKakaoBootstrapError(kakaoBootstrapError);
       kakaoReadyReject(kakaoBootstrapError);
       updateOriginField();
-      requestCurrentLocation(false);
+      requestCurrentLocation(false, true);
     }
   }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      requestCurrentLocation(false, true);
+    }
+  });
+
+  document.getElementById("map-container")?.addEventListener("click", () => {
+    requestCurrentLocation(true, true);
+  });
 
   function initKakaoMap() {
     bootstrapKakao();
