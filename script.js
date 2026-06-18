@@ -464,8 +464,14 @@
     if (viewName === "realtime") loadRealtimeData();
     if (viewName === "search") renderSearchPanels();
     if (viewName === "golden") {
+      startGoldenClock();
       renderGoldenSavedPlaces();
-      loadGoldenAnalysis();
+      if (state.goldenDestination && transitAnalysisData) {
+        renderGoldenAnalysis(transitAnalysisData);
+        setGoldenResultsVisible(true);
+      } else {
+        setGoldenResultsVisible(false);
+      }
     }
     if (viewName === "saved") renderSavedView();
     updateRouteSummary();
@@ -871,7 +877,7 @@
     const input = document.getElementById("golden-dest-input");
     const query = input?.value.trim();
     if (!query) {
-      showToast("막차 분석할 목적지를 입력해 주세요");
+      showToast("막차 패스 목적지를 입력해 주세요");
       return;
     }
     try {
@@ -1324,6 +1330,49 @@
     }
   }
 
+  function setGoldenResultsVisible(visible) {
+    const el = document.getElementById("golden-results");
+    if (el) el.hidden = !visible;
+  }
+
+  function renderGoldenRouteLine(data) {
+    const analysis = data.analysis || {};
+    const best = data.best || {};
+    const route = data.route || {};
+    const origin = shortLabel(locationState.current.label);
+    const dest = goldenDestLabel();
+    const stop = best.stop_name || "역·정류장";
+    const walkMin = analysis.walk_minutes || 0;
+    const endLeg = route.legs?.length ? route.legs[route.legs.length - 1] : null;
+    const endWalk = endLeg?.type === "walk" ? endLeg.minutes : 0;
+    const transitLabel = best.type === "지하철" ? `${best.name}` : `${best.name}번`;
+
+    return `
+      <div class="golden-path__node">
+        <span class="golden-path__dot golden-path__dot--start"></span>
+        <span class="golden-path__label">현재</span>
+        <span class="golden-path__sub">${origin}</span>
+      </div>
+      <div class="golden-path__segment">
+        <span class="golden-path__line"></span>
+        <span class="golden-path__meta">도보 ${walkMin}분</span>
+      </div>
+      <div class="golden-path__node">
+        <span class="golden-path__dot golden-path__dot--transit"></span>
+        <span class="golden-path__label">${stop.replace("(정류장)", "").replace("(지하철)", "")}</span>
+        <span class="golden-path__sub">${best.type} ${transitLabel}</span>
+      </div>
+      <div class="golden-path__segment">
+        <span class="golden-path__line"></span>
+        <span class="golden-path__meta">${best.eta}분 후 도착</span>
+      </div>
+      <div class="golden-path__node">
+        <span class="golden-path__dot golden-path__dot--end"></span>
+        <span class="golden-path__label">목적지</span>
+        <span class="golden-path__sub">${dest}${endWalk ? ` · 도보 ${endWalk}분` : ""}</span>
+      </div>`;
+  }
+
   function startGoldenClock() {
     clearInterval(goldenClockTimer);
     const tick = () => {
@@ -1341,19 +1390,28 @@
     const analysis = data.analysis || {};
     const route = data.route || {};
     const best = data.best || {};
+    const bufferMin = analysis.golden_minutes ?? 0;
+    const isUrgent = bufferMin <= 5;
 
     const goldenDepartEm = document.getElementById("golden-depart-em");
     const goldenDest = document.getElementById("golden-destination");
     const schedule = document.getElementById("golden-schedule");
+    const pathEl = document.getElementById("golden-path");
     const gRouteTime = document.getElementById("golden-route-time");
     const gRouteMode = document.getElementById("golden-route-mode");
     const gRoutePath = document.getElementById("golden-route-path");
 
+    setGoldenResultsVisible(true);
+
     if (goldenDepartEm) {
       goldenDepartEm.textContent = analysis.recommended_departure || analysis.departure_time || "--:--";
+      goldenDepartEm.classList.toggle("golden-urgent", isUrgent);
     }
     if (goldenDest) {
       goldenDest.textContent = goldenDestLabel();
+    }
+    if (pathEl) {
+      pathEl.innerHTML = renderGoldenRouteLine(data);
     }
     if (schedule) {
       schedule.innerHTML = `
@@ -1366,9 +1424,10 @@
           <p class="golden-card__value">${best.type} ${best.name}</p>
           <p class="golden-card__sub">${best.stop_name} · ${best.eta}분 후 도착</p>
         </article>
-        <article class="golden-card">
+        <article class="golden-card ${isUrgent ? "golden-card--urgent" : ""}">
           <p class="golden-card__label">도보 / 여유</p>
-          <p class="golden-card__value">${analysis.walk_minutes}분 / ${analysis.golden_minutes}분</p>
+          <p class="golden-card__value ${isUrgent ? "golden-card__value--urgent" : ""}">${analysis.walk_minutes}분 / ${bufferMin}분</p>
+          ${isUrgent ? `<p class="golden-card__sub golden-card__value--urgent">여유 ${bufferMin}분 — 서둘러 출발하세요</p>` : ""}
         </article>
         <article class="golden-card">
           <p class="golden-card__label">예상 귀가</p>
@@ -1390,27 +1449,14 @@
   }
 
   async function loadGoldenAnalysis() {
-    startGoldenClock();
-
-    const schedule = document.getElementById("golden-schedule");
-    const goldenDest = document.getElementById("golden-destination");
-    const goldenDepartEm = document.getElementById("golden-depart-em");
-
     if (!state.goldenDestination) {
-      if (goldenDest) goldenDest.textContent = "목적지 미선택";
-      if (goldenDepartEm) goldenDepartEm.textContent = "--:--";
-      if (schedule) {
-        schedule.innerHTML = `<div class="info-banner info-banner--subtle"><p>목적지를 검색하거나 자주 가는 목적지를 선택해 주세요.</p></div>`;
-      }
-      const gRouteTime = document.getElementById("golden-route-time");
-      const gRouteMode = document.getElementById("golden-route-mode");
-      const gRoutePath = document.getElementById("golden-route-path");
-      if (gRouteTime) gRouteTime.textContent = "—";
-      if (gRouteMode) gRouteMode.textContent = "목적지 선택 필요";
-      if (gRoutePath) gRoutePath.textContent = "목적지를 입력해 주세요";
+      setGoldenResultsVisible(false);
+      transitAnalysisData = null;
       return;
     }
 
+    const schedule = document.getElementById("golden-schedule");
+    setGoldenResultsVisible(true);
     if (schedule) schedule.innerHTML = `<p class="loading-text">막차·귀가 분석 중…</p>`;
 
     try {

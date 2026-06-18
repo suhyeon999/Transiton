@@ -1263,7 +1263,127 @@ ul {
   background: linear-gradient(160deg, #312e81 0%, #4c1d95 50%, #6d28d9 100%);
   color: #fff;
   border-radius: var(--radius-lg);
-  margin-bottom: 24px;
+  margin-bottom: 16px;
+}
+
+.golden-hero--clock {
+  padding: 24px 20px 20px;
+}
+
+.golden-hero__desc--inline {
+  text-align: center;
+  padding: 16px;
+  margin: 0 0 16px;
+  background: linear-gradient(160deg, #312e81 0%, #4c1d95 100%);
+  color: #fff;
+  border-radius: var(--radius-md);
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
+.golden-hero__desc--inline em {
+  font-style: normal;
+  font-weight: 700;
+  color: #fde68a;
+}
+
+.golden-hero__desc--inline em.golden-urgent {
+  color: #fca5a5;
+}
+
+.golden-path {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  padding: 16px 8px;
+  margin-bottom: 20px;
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow-x: auto;
+}
+
+.golden-path__node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 72px;
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.golden-path__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+
+.golden-path__dot--start {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px #dcfce7;
+}
+
+.golden-path__dot--transit {
+  background: #3b82f6;
+  box-shadow: 0 0 0 3px #dbeafe;
+}
+
+.golden-path__dot--end {
+  background: #8b5cf6;
+  box-shadow: 0 0 0 3px #ede9fe;
+}
+
+.golden-path__label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.3;
+  word-break: keep-all;
+}
+
+.golden-path__sub {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.golden-path__segment {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 56px;
+  padding-top: 4px;
+  flex: 1;
+}
+
+.golden-path__line {
+  display: block;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, #cbd5e1, #6366f1, #cbd5e1);
+  border-radius: 1px;
+  margin-bottom: 6px;
+}
+
+.golden-path__meta {
+  font-size: 0.65rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.golden-card__value--urgent {
+  color: #dc2626;
+}
+
+.golden-card--urgent {
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+}
+
+.golden-card--urgent .golden-card__label {
+  color: #b91c1c;
 }
 
 .golden-hero__clock {

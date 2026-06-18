@@ -66,9 +66,9 @@
           </button>
           <button class="quick-action" type="button" data-nav="golden">
             <span class="quick-action__icon quick-action__icon--purple">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><circle cx="12" cy="12" r="4"/></svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
             </span>
-            <span class="quick-action__label">막차 안내</span>
+            <span class="quick-action__label">막차 패스</span>
           </button>
           <button class="quick-action" type="button" data-nav="saved">
             <span class="quick-action__icon quick-action__icon--orange">
@@ -290,23 +290,34 @@
       </div>
     </section>
 
-    <!-- ===== 5. 막차 골든타임 안내 화면 ===== -->
+    <!-- ===== 5. 막차 패스 화면 ===== -->
     <section class="view" id="view-golden" data-view="golden">
       <header class="header header--compact">
         <button class="icon-btn icon-btn--back" type="button" data-nav="home" aria-label="뒤로">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
         </button>
-        <h2 class="header__title">막차 골든타임</h2>
+        <h2 class="header__title">막차 패스</h2>
         <span class="header__badge">귀가 가이드</span>
       </header>
 
       <div class="content">
+        <div class="golden-hero golden-hero--clock">
+          <div class="golden-hero__clock">
+            <span class="golden-hero__time" id="golden-time">--:--:--</span>
+            <span class="golden-hero__label">현재 시각</span>
+          </div>
+        </div>
+
         <section class="section section--compact">
           <h2 class="section__title">목적지</h2>
           <div class="golden-dest-form">
             <input type="text" id="golden-dest-input" class="route-input" placeholder="목적지 검색 (예: 해운대역)" autocomplete="off">
-            <button class="btn btn--primary btn--sm" type="button" id="golden-dest-search">분석</button>
+            <button class="btn btn--primary btn--sm" type="button" id="golden-dest-search">검색</button>
           </div>
+        </section>
+
+        <section class="section section--compact">
+          <h2 class="section__title">자주 가는 목적지</h2>
           <ul class="place-chips" id="golden-saved-places" role="list"></ul>
           <details class="golden-add-place">
             <summary>자주 가는 목적지 등록</summary>
@@ -318,34 +329,30 @@
           </details>
         </section>
 
-        <div class="golden-hero">
-          <div class="golden-hero__clock">
-            <span class="golden-hero__time" id="golden-time">--:--:--</span>
-            <span class="golden-hero__label">현재 시각</span>
-          </div>
-          <p class="golden-hero__desc" id="golden-desc">
-            <strong id="golden-destination">목적지 미선택</strong>까지 막차를 타려면<br>
+        <div id="golden-results" hidden>
+          <p class="golden-hero__desc golden-hero__desc--inline" id="golden-desc">
+            <strong id="golden-destination">목적지 미선택</strong>까지 막차를 타려면
             <em id="golden-depart-em">--:--</em>까지 출발하세요
           </p>
+
+          <div class="golden-path" id="golden-path" aria-label="도보-역·정류장-목적지 경로"></div>
+
+          <section class="section">
+            <h2 class="section__title">추천 탑승 · 분석</h2>
+            <div class="golden-schedule" id="golden-schedule"></div>
+          </section>
+
+          <section class="section">
+            <h2 class="section__title">귀가 경로</h2>
+            <button class="route-preview route-preview--dark" type="button" data-nav="routes">
+              <div class="route-preview__meta">
+                <span class="route-preview__time" id="golden-route-time">—</span>
+                <span class="route-preview__fare" id="golden-route-mode">추천 수단</span>
+              </div>
+              <p class="route-preview__path" id="golden-route-path">목적지 검색 후 경로 확인</p>
+            </button>
+          </section>
         </div>
-
-        <section class="section">
-          <h2 class="section__title">추천 탑승 · 분석</h2>
-          <div class="golden-schedule" id="golden-schedule">
-            <p class="loading-text">막차 정보 — Humetro API 연동 예정</p>
-          </div>
-        </section>
-
-        <section class="section">
-          <h2 class="section__title">귀가 경로</h2>
-          <button class="route-preview route-preview--dark" type="button" data-nav="routes">
-            <div class="route-preview__meta">
-              <span class="route-preview__time" id="golden-route-time">분석 중…</span>
-              <span class="route-preview__fare" id="golden-route-mode">추천 수단</span>
-            </div>
-            <p class="route-preview__path" id="golden-route-path">목적지 검색 후 경로 확인</p>
-          </button>
-        </section>
 
         <div class="alert alert--warning">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>
@@ -397,7 +404,7 @@
         <span>실시간</span>
       </button>
       <button class="bottom-nav__item" type="button" data-nav="golden">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><circle cx="12" cy="12" r="4"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         <span>막차</span>
       </button>
       <button class="bottom-nav__item" type="button" data-nav="saved">
