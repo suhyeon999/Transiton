@@ -322,6 +322,56 @@ class TransitService:
             return name
         return self._nearest_subway_station(dest_lat, dest_lng)
 
+    def _station_by_name(self, name):
+        n = (name or "").replace("(지하철)", "").replace("(정류장)", "").strip()
+        n_compact = n.replace("·", "").replace(" ", "")
+        for s in BUSAN_SUBWAY_STATIONS:
+            sn = s["name"]
+            sn_compact = sn.replace("·", "").replace(" ", "")
+            if sn == n or n in sn or sn_compact == n_compact or sn_compact in n_compact:
+                return s
+        return None
+
+    def _nearest_exit(self, station_name, ref_lat, ref_lng):
+        station = self._station_by_name(station_name)
+        if not station:
+            return "가까운 출구", ref_lat, ref_lng
+        base_lat, base_lng = station["lat"], station["lng"]
+        offsets = [
+            ("1번 출구", 0.00035, 0.00015),
+            ("2번 출구", 0.00015, 0.00035),
+            ("3번 출구", -0.00035, -0.00015),
+            ("4번 출구", -0.00015, -0.00035),
+            ("5번 출구", 0.00025, -0.00025),
+        ]
+        exits = [
+            {"name": label, "lat": base_lat + dlat, "lng": base_lng + dlng}
+            for label, dlat, dlng in offsets
+        ]
+        best = min(
+            exits,
+            key=lambda e: haversine_m(ref_lat, ref_lng, e["lat"], e["lng"]),
+        )
+        return best["name"], best["lat"], best["lng"]
+
+    def _enrich_subway_leg(self, leg, origin_lat, origin_lng, dest_lat, dest_lng):
+        board_stop = leg.get("board_stop")
+        alight_stop = leg.get("alight_stop")
+        if board_stop:
+            board_st = self._station_by_name(board_stop)
+            exit_name, _, _ = self._nearest_exit(board_stop, origin_lat, origin_lng)
+            leg["board_exit"] = exit_name
+            if board_st:
+                leg["board_stop_lat"] = board_st["lat"]
+                leg["board_stop_lng"] = board_st["lng"]
+        if alight_stop:
+            alight_st = self._station_by_name(alight_stop)
+            exit_name, _, _ = self._nearest_exit(alight_stop, dest_lat, dest_lng)
+            leg["alight_exit"] = exit_name
+            if alight_st:
+                leg["alight_stop_lat"] = alight_st["lat"]
+                leg["alight_stop_lng"] = alight_st["lng"]
+
     def plan_transit_route(
         self,
         origin_lat,
@@ -446,6 +496,10 @@ class TransitService:
         move_min = sum(l["minutes"] for l in legs) + wait_min
         now = now_kst()
         arrival = now + timedelta(minutes=move_min)
+
+        for leg in legs:
+            if leg.get("type") == "subway":
+                self._enrich_subway_leg(leg, origin_lat, origin_lng, dest_lat, dest_lng)
 
         return {
             "origin": {"lat": origin_lat, "lng": origin_lng, "label": origin_label or DEFAULT_LOCATION["label"]},

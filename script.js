@@ -1435,13 +1435,12 @@
     goldenWalkMap = null;
   }
 
-  async function openGoldenWalkGuide(best, walkMin) {
-    if (!best) return;
+  async function openWalkGuideModal({ stopName, stopLat, stopLng, walkMin, distM }) {
     const modal = document.getElementById("golden-walk-modal");
     const title = document.getElementById("golden-walk-title");
     const sub = document.getElementById("golden-walk-sub");
     const distEl = document.getElementById("golden-walk-distance");
-    if (!modal) return;
+    if (!modal || !stopName) return;
 
     try {
       await whenKakaoReady();
@@ -1450,10 +1449,9 @@
       return;
     }
 
-    const stopName = formatBoardStopName(best);
     let stopPoint = {
-      lat: best.stop_lat,
-      lng: best.stop_lng,
+      lat: stopLat,
+      lng: stopLng,
       name: stopName,
     };
 
@@ -1461,19 +1459,19 @@
       try {
         stopPoint = await geocodeDestination(stopName);
       } catch {
-        showToast("탑승 역·정류장 위치를 찾지 못했습니다");
+        showToast("역·정류장 위치를 찾지 못했습니다");
         return;
       }
     }
 
     const origin = locationState.current;
-    const distM = best.dist || haversineM(origin, stopPoint);
-    const minutes = walkMin || walkMinutes(distM);
+    const distance = distM || haversineM(origin, stopPoint);
+    const minutes = walkMin || walkMinutes(distance);
 
     if (title) title.textContent = `${stopName} 도보 안내`;
     if (sub) sub.textContent = `${shortLabel(origin.label)} → ${stopName}`;
     if (distEl) {
-      distEl.textContent = `약 ${minutes}분 · ${formatDistance(distM)}`;
+      distEl.textContent = `약 ${minutes}분 · ${formatDistance(distance)}`;
     }
 
     modal.hidden = false;
@@ -1515,6 +1513,17 @@
     path.forEach((coord) => bounds.extend(coord));
     goldenWalkMap.setBounds(bounds, 56, 56, 56, 56);
     setTimeout(() => goldenWalkMap?.relayout(), 80);
+  }
+
+  async function openGoldenWalkGuide(best, walkMin) {
+    if (!best) return;
+    await openWalkGuideModal({
+      stopName: formatBoardStopName(best),
+      stopLat: best.stop_lat,
+      stopLng: best.stop_lng,
+      walkMin,
+      distM: best.dist,
+    });
   }
 
   function requestWalkingRoute(origin, destination) {
@@ -1690,6 +1699,32 @@
     }
   }
 
+  function formatSubwayStopName(name) {
+    return (name || "")
+      .replace("(정류장)", "")
+      .replace("(지하철)", "")
+      .trim();
+  }
+
+  function renderTimelineStopLine(kind, leg) {
+    const isBoard = kind === "board";
+    const stop = isBoard ? leg.board_stop : leg.alight_stop;
+    if (!stop) return "";
+    const label = isBoard ? "탑승" : "하차";
+    const cls = isBoard ? "" : " timeline__stop--alight";
+
+    if (leg.type !== "subway") {
+      return `<p class="timeline__stop${cls}">${label} · ${stop}</p>`;
+    }
+
+    const cleanStop = formatSubwayStopName(stop);
+    const exit = isBoard ? leg.board_exit : leg.alight_exit;
+    const lat = isBoard ? leg.board_stop_lat : leg.alight_stop_lat;
+    const lng = isBoard ? leg.board_stop_lng : leg.alight_stop_lng;
+    const exitText = exit ? `<span class="timeline__exit">${exit}</span>` : "";
+    return `<p class="timeline__stop${cls}">${label} · <button type="button" class="timeline__stop-link" data-stop-name="${cleanStop.replace(/"/g, "&quot;")}" data-stop-lat="${lat ?? ""}" data-stop-lng="${lng ?? ""}">${cleanStop}</button> ${exitText}</p>`;
+  }
+
   function renderTransitTimeline(legs) {
     if (!legs?.length) return "";
     const now = Date.now();
@@ -1703,10 +1738,8 @@
               : leg.type === "bus"
                 ? "timeline__dot--bus"
                 : `timeline__dot--subway line-${leg.line || "2"}`;
-        const board =
-          leg.board_stop ? `<p class="timeline__stop">탑승 · ${leg.board_stop}</p>` : "";
-        const alight =
-          leg.alight_stop ? `<p class="timeline__stop timeline__stop--alight">하차 · ${leg.alight_stop}</p>` : "";
+        const board = renderTimelineStopLine("board", leg);
+        const alight = renderTimelineStopLine("alight", leg);
         const waitSec = leg.wait_sec ?? (leg.wait_min != null ? leg.wait_min * 60 : 0);
         const countdown =
           (leg.type === "bus" || leg.type === "subway") && waitSec > 0
@@ -2416,6 +2449,19 @@
   document.getElementById("golden-walk-close")?.addEventListener("click", closeGoldenWalkModal);
   document.getElementById("golden-walk-modal")?.addEventListener("click", (e) => {
     if (e.target.id === "golden-walk-modal") closeGoldenWalkModal();
+  });
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest(".timeline__stop-link");
+    if (!btn) return;
+    e.preventDefault();
+    const stopName = btn.dataset.stopName;
+    const lat = parseFloat(btn.dataset.stopLat);
+    const lng = parseFloat(btn.dataset.stopLng);
+    let distM = null;
+    if (isValidCoord(lat, lng)) {
+      distM = haversineM(locationState.current, { lat, lng });
+    }
+    openWalkGuideModal({ stopName, stopLat: lat, stopLng: lng, distM });
   });
   document.getElementById("golden-toggle-add-place")?.addEventListener("click", () => {
     const form = document.getElementById("golden-add-form");

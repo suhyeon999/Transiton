@@ -1217,6 +1217,24 @@ ul {
   font-weight: 600;
 }
 
+.timeline__stop-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-weight: inherit;
+  color: var(--accent-blue, #2563eb);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.timeline__exit {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
 .timeline__countdown,
 .route-board-countdown {
   display: block;
