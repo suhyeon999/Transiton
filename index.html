@@ -84,7 +84,7 @@
             <button class="text-btn" type="button" data-nav="realtime">전체보기</button>
           </div>
           <div class="nearby-list" id="nearby-list">
-            <p class="loading-text">실시간 정보 불러오는 중…</p>
+            <p class="loading-text">주변 정류장·역 검색 중…</p>
           </div>
         </section>
 
@@ -94,10 +94,10 @@
           </div>
           <button class="route-preview" type="button" data-nav="routes" id="home-route-preview">
             <div class="route-preview__meta">
-              <span class="route-preview__time" id="home-route-time">분석 중…</span>
-              <span class="route-preview__fare" id="home-route-mode">API 연동</span>
+              <span class="route-preview__time" id="home-route-time">목적지 검색</span>
+              <span class="route-preview__fare" id="home-route-mode">카카오맵</span>
             </div>
-            <p class="route-preview__path" id="home-route-path">경성대부경대역 → 추천 수단 분석</p>
+            <p class="route-preview__path" id="home-route-path">출발지 → 목적지 경로</p>
             <span class="route-preview__cta">최적 경로 보기 →</span>
           </button>
         </section>
@@ -172,13 +172,13 @@
       </div>
 
       <div class="content">
-        <p class="api-status" id="api-status">BIMS · Humetro API 연동</p>
+        <p class="api-status" id="api-status">실시간 도착 — 공공데이터 API 연동 예정</p>
         <div class="tab-panel tab-panel--active" id="panel-bus">
-          <div id="bus-list"><p class="loading-text">버스 도착 정보 불러오는 중…</p></div>
+          <div id="bus-list"><p class="loading-text">버스 도착 정보</p></div>
         </div>
 
         <div class="tab-panel" id="panel-subway">
-          <div id="subway-list"><p class="loading-text">지하철 도착 정보 불러오는 중…</p></div>
+          <div id="subway-list"><p class="loading-text">지하철 도착 정보</p></div>
         </div>
       </div>
     </section>
@@ -280,7 +280,7 @@
 
         <div class="info-banner">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-          <p id="route-info-banner">BIMS·Humetro 실시간 데이터 기반 추천 경로입니다.</p>
+          <p id="route-info-banner">카카오맵 경로·거리 기반 추정입니다.</p>
         </div>
       </div>
     </section>
@@ -310,7 +310,7 @@
         <section class="section">
           <h2 class="section__title">추천 탑승 · 분석</h2>
           <div class="golden-schedule" id="golden-schedule">
-            <p class="loading-text">골든타임 분석 중…</p>
+            <p class="loading-text">막차 정보 — Humetro API 연동 예정</p>
           </div>
         </section>
 
@@ -321,7 +321,7 @@
               <span class="route-preview__time" id="golden-route-time">분석 중…</span>
               <span class="route-preview__fare" id="golden-route-mode">추천 수단</span>
             </div>
-            <p class="route-preview__path" id="golden-route-path">경성대부경대역 → API 분석 결과</p>
+            <p class="route-preview__path" id="golden-route-path">목적지 검색 후 경로 확인</p>
           </button>
         </section>
 
