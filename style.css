@@ -1267,28 +1267,102 @@ ul {
 }
 
 .golden-hero--clock {
-  padding: 24px 20px 20px;
+  padding: 22px 16px 18px;
 }
 
-.golden-hero__desc--inline {
-  text-align: center;
-  padding: 16px;
-  margin: 0 0 16px;
-  background: linear-gradient(160deg, #312e81 0%, #4c1d95 100%);
-  color: #fff;
-  border-radius: var(--radius-md);
-  font-size: 0.92rem;
-  line-height: 1.65;
+.golden-hero__desc {
+  font-size: 0.88rem;
+  line-height: 1.6;
+  margin: 12px 0 14px;
 }
 
-.golden-hero__desc--inline em {
+.golden-hero__desc em {
   font-style: normal;
   font-weight: 700;
   color: #fde68a;
 }
 
-.golden-hero__desc--inline em.golden-urgent {
+.golden-hero__desc em.golden-urgent {
   color: #fca5a5;
+}
+
+.golden-hero__search {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.golden-hero__search .route-input--compact {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  font-size: 0.82rem;
+  border-radius: var(--radius-sm);
+  border: none;
+}
+
+.golden-register-btn {
+  display: block;
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.72rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.golden-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.golden-add-form .route-input--compact {
+  padding: 8px 10px;
+  font-size: 0.78rem;
+  border: none;
+  border-radius: var(--radius-sm);
+}
+
+.place-chips--hero {
+  justify-content: center;
+  margin-bottom: 0;
+}
+
+.golden-hero .place-chip {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #fff;
+  padding: 6px 10px;
+  font-size: 0.72rem;
+}
+
+.golden-hero .place-chip--active {
+  background: rgba(255, 255, 255, 0.28);
+  border-color: #fde68a;
+  color: #fde68a;
+}
+
+.golden-hero .place-chip__delete {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.route-input--compact {
+  padding: 8px 10px;
+  font-size: 0.82rem;
+}
+
+.btn--xs {
+  padding: 8px 12px;
+  font-size: 0.75rem;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
 }
 
 .golden-path {
@@ -1387,7 +1461,7 @@ ul {
 }
 
 .golden-hero__clock {
-  margin-bottom: 16px;
+  margin-bottom: 4px;
 }
 
 .golden-hero__time {
@@ -1402,17 +1476,6 @@ ul {
   font-size: 0.85rem;
   opacity: 0.85;
   margin-top: 6px;
-}
-
-.golden-hero__desc {
-  font-size: 0.95rem;
-  line-height: 1.6;
-}
-
-.golden-hero__desc em {
-  font-style: normal;
-  font-weight: 700;
-  color: #fde68a;
 }
 
 .golden-schedule {

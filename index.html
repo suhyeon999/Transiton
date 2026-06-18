@@ -306,35 +306,24 @@
             <span class="golden-hero__time" id="golden-time">--:--:--</span>
             <span class="golden-hero__label">현재 시각</span>
           </div>
-        </div>
-
-        <section class="section section--compact">
-          <h2 class="section__title">목적지</h2>
-          <div class="golden-dest-form">
-            <input type="text" id="golden-dest-input" class="route-input" placeholder="목적지 검색 (예: 해운대역)" autocomplete="off">
-            <button class="btn btn--primary btn--sm" type="button" id="golden-dest-search">검색</button>
-          </div>
-        </section>
-
-        <section class="section section--compact">
-          <h2 class="section__title">자주 가는 목적지</h2>
-          <ul class="place-chips" id="golden-saved-places" role="list"></ul>
-          <details class="golden-add-place">
-            <summary>자주 가는 목적지 등록</summary>
-            <div class="golden-add-place__fields">
-              <input type="text" id="golden-place-label" class="route-input" placeholder="이름 (집, 친구집)" maxlength="20">
-              <input type="text" id="golden-place-query" class="route-input" placeholder="주소 또는 장소명">
-              <button class="btn btn--secondary btn--sm btn--full" type="button" id="golden-place-add">등록</button>
-            </div>
-          </details>
-        </section>
-
-        <div id="golden-results" hidden>
-          <p class="golden-hero__desc golden-hero__desc--inline" id="golden-desc">
-            <strong id="golden-destination">목적지 미선택</strong>까지 막차를 타려면
+          <p class="golden-hero__desc" id="golden-desc">
+            <strong id="golden-destination">목적지 미선택</strong>까지 막차를 타려면<br>
             <em id="golden-depart-em">--:--</em>까지 출발하세요
           </p>
+          <div class="golden-hero__search">
+            <input type="text" id="golden-dest-input" class="route-input route-input--compact" placeholder="목적지 입력" autocomplete="off">
+            <button class="btn btn--primary btn--xs" type="button" id="golden-dest-search">검색</button>
+          </div>
+          <button class="golden-register-btn" type="button" id="golden-toggle-add-place">자주 가는 목적지 등록</button>
+          <div class="golden-add-form" id="golden-add-form" hidden>
+            <input type="text" id="golden-place-label" class="route-input route-input--compact" placeholder="이름 (집, 친구집)" maxlength="20">
+            <input type="text" id="golden-place-query" class="route-input route-input--compact" placeholder="주소 또는 장소명">
+            <button class="btn btn--secondary btn--xs btn--full" type="button" id="golden-place-add">등록</button>
+          </div>
+          <ul class="place-chips place-chips--hero" id="golden-saved-places" role="list"></ul>
+        </div>
 
+        <div id="golden-results" hidden>
           <div class="golden-path" id="golden-path" aria-label="도보-역·정류장-목적지 경로"></div>
 
           <section class="section">

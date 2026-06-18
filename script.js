@@ -471,6 +471,7 @@
         setGoldenResultsVisible(true);
       } else {
         setGoldenResultsVisible(false);
+        resetGoldenHeroDesc();
       }
     }
     if (viewName === "saved") renderSavedView();
@@ -864,6 +865,8 @@
       const queryInput = document.getElementById("golden-place-query");
       if (labelInput) labelInput.value = "";
       if (queryInput) queryInput.value = "";
+      const addForm = document.getElementById("golden-add-form");
+      if (addForm) addForm.hidden = true;
       const destInput = document.getElementById("golden-dest-input");
       if (destInput) destInput.value = trimmedQuery;
       await loadGoldenAnalysis();
@@ -1330,6 +1333,16 @@
     }
   }
 
+  function resetGoldenHeroDesc() {
+    const goldenDest = document.getElementById("golden-destination");
+    const goldenDepartEm = document.getElementById("golden-depart-em");
+    if (goldenDest) goldenDest.textContent = "목적지 미선택";
+    if (goldenDepartEm) {
+      goldenDepartEm.textContent = "--:--";
+      goldenDepartEm.classList.remove("golden-urgent");
+    }
+  }
+
   function setGoldenResultsVisible(visible) {
     const el = document.getElementById("golden-results");
     if (el) el.hidden = !visible;
@@ -1378,8 +1391,6 @@
     const tick = () => {
       const el = document.getElementById("golden-time");
       if (el) el.textContent = formatNowTime(true);
-      const analysisNow = document.getElementById("golden-analysis-now");
-      if (analysisNow) analysisNow.textContent = formatNowTime(true);
     };
     tick();
     goldenClockTimer = setInterval(tick, 1000);
@@ -1416,10 +1427,6 @@
     if (schedule) {
       schedule.innerHTML = `
         <article class="golden-card">
-          <p class="golden-card__label">현재 시각</p>
-          <p class="golden-card__value" id="golden-analysis-now">${formatNowTime(true)}</p>
-        </article>
-        <article class="golden-card">
           <p class="golden-card__label">추천 탑승</p>
           <p class="golden-card__value">${best.type} ${best.name}</p>
           <p class="golden-card__sub">${best.stop_name} · ${best.eta}분 후 도착</p>
@@ -1433,8 +1440,7 @@
           <p class="golden-card__label">예상 귀가</p>
           <p class="golden-card__value">${analysis.arrival_time}</p>
           <p class="golden-card__sub">출발 권장 ${analysis.departure_time}</p>
-        </article>
-        ${data.using_fallback ? `<div class="info-banner info-banner--subtle"><p>일부 공공 API 연결 불안정 — 추정 도착 정보가 포함될 수 있습니다.</p></div>` : ""}`;
+        </article>`;
     }
     if (gRouteTime) gRouteTime.textContent = route.duration_min ? `약 ${formatDuration(route.duration_min)}` : "—";
     if (gRouteMode) {
@@ -1452,6 +1458,7 @@
     if (!state.goldenDestination) {
       setGoldenResultsVisible(false);
       transitAnalysisData = null;
+      resetGoldenHeroDesc();
       return;
     }
 
@@ -2200,6 +2207,10 @@
   document.getElementById("saved-clear-recent")?.addEventListener("click", clearRecentSearches);
 
   document.getElementById("golden-dest-search")?.addEventListener("click", searchGoldenDestination);
+  document.getElementById("golden-toggle-add-place")?.addEventListener("click", () => {
+    const form = document.getElementById("golden-add-form");
+    if (form) form.hidden = !form.hidden;
+  });
   document.getElementById("golden-place-add")?.addEventListener("click", () => {
     addSavedPlace(
       document.getElementById("golden-place-label")?.value || "",
