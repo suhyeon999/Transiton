@@ -327,7 +327,7 @@
           <div class="golden-path" id="golden-path" aria-label="도보-역·정류장-목적지 경로"></div>
 
           <section class="section">
-            <h2 class="section__title">추천 탑승 · 분석</h2>
+            <h2 class="section__title">최적 경로 안내</h2>
             <div class="golden-schedule" id="golden-schedule"></div>
           </section>
 
@@ -346,6 +346,29 @@
         <div class="alert alert--warning">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>
           <p>주말·공휴일 막차 시간은 평일과 다를 수 있습니다.</p>
+        </div>
+
+        <div class="golden-loading" id="golden-loading" hidden aria-live="polite">
+          <div class="golden-loading__box">로딩중</div>
+        </div>
+
+        <div class="golden-walk-modal" id="golden-walk-modal" hidden>
+          <div class="golden-walk-modal__sheet">
+            <header class="golden-walk-modal__head">
+              <div>
+                <h3 id="golden-walk-title">도보 안내</h3>
+                <p id="golden-walk-sub">현재 위치 → 탑승 역·정류장</p>
+              </div>
+              <button class="icon-btn" type="button" id="golden-walk-close" aria-label="닫기">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+              </button>
+            </header>
+            <div id="golden-walk-map" class="golden-walk-map" role="region" aria-label="도보 경로 지도"></div>
+            <div class="golden-walk-modal__info">
+              <p class="golden-walk-modal__distance" id="golden-walk-distance">—</p>
+              <p class="golden-walk-modal__hint">직선 경로 기준 · 실제 도보 경로는 주변 환경에 따라 달라질 수 있습니다.</p>
+            </div>
+          </div>
         </div>
       </div>
     </section>

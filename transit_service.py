@@ -487,6 +487,8 @@ class TransitService:
             "eta": bus.get("eta", 15),
             "stop_name": bus["stop_name"],
             "dist": bus["dist"],
+            "stop_lat": DEFAULT_LOCATION["lat"],
+            "stop_lng": DEFAULT_LOCATION["lon"],
         }
         subway_pick = {
             "type": "지하철",
@@ -494,6 +496,8 @@ class TransitService:
             "eta": subway.get("eta", 10),
             "stop_name": subway["stop_name"],
             "dist": subway["dist"],
+            "stop_lat": DEFAULT_LOCATION["lat"],
+            "stop_lng": DEFAULT_LOCATION["lon"],
         }
 
         best = min([bus_pick, subway_pick], key=lambda x: x["eta"])

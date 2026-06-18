@@ -54,6 +54,9 @@
   let goldenClockTimer = null;
   let realtimeLoading = false;
   let routeLiveTimer = null;
+  let goldenWalkMap = null;
+  let goldenWalkOverlays = { markers: [], lines: [] };
+  let lastGoldenBoard = null;
 
   document.addEventListener("securitypolicyviolation", (e) => {
     if (!e.blockedURI?.includes("dapi.kakao.com") && !e.sourceFile?.includes("sdk.js")) return;
@@ -883,6 +886,7 @@
       showToast("막차 패스 목적지를 입력해 주세요");
       return;
     }
+    showGoldenLoading(true);
     try {
       await whenKakaoReady();
       const geo = await geocodeDestination(query);
@@ -896,9 +900,11 @@
       };
       persistGoldenDestination();
       renderGoldenSavedPlaces();
-      await loadGoldenAnalysis();
+      await loadGoldenAnalysis({ manageLoading: false });
     } catch {
       showToast(`'${query}' 목적지를 찾을 수 없습니다`);
+    } finally {
+      showGoldenLoading(false);
     }
   }
 
@@ -1386,6 +1392,174 @@
       </div>`;
   }
 
+  function showGoldenLoading(show) {
+    const el = document.getElementById("golden-loading");
+    if (el) el.hidden = !show;
+  }
+
+  function formatBoardStopName(best) {
+    return (best.stop_name || "역·정류장")
+      .replace("(정류장)", "")
+      .replace("(지하철)", "")
+      .trim();
+  }
+
+  function formatBoardLineLabel(best) {
+    if (best.type === "지하철") {
+      const line = String(best.name || "2호선");
+      return line.includes("호선") ? line : `${line}호선`;
+    }
+    const num = String(best.name || "").replace(/[^0-9]/g, "");
+    return num ? `${num}번 버스` : "버스";
+  }
+
+  function clearGoldenWalkMap() {
+    goldenWalkOverlays.markers.forEach((m) => m.setMap(null));
+    goldenWalkOverlays.lines.forEach((l) => l.setMap(null));
+    goldenWalkOverlays = { markers: [], lines: [] };
+  }
+
+  function closeGoldenWalkModal() {
+    const modal = document.getElementById("golden-walk-modal");
+    if (modal) modal.hidden = true;
+    clearGoldenWalkMap();
+    goldenWalkMap = null;
+  }
+
+  async function openGoldenWalkGuide(best, walkMin) {
+    if (!best) return;
+    const modal = document.getElementById("golden-walk-modal");
+    const title = document.getElementById("golden-walk-title");
+    const sub = document.getElementById("golden-walk-sub");
+    const distEl = document.getElementById("golden-walk-distance");
+    if (!modal) return;
+
+    try {
+      await whenKakaoReady();
+    } catch {
+      showToast("카카오맵 준비 후 도보 안내를 이용할 수 있습니다");
+      return;
+    }
+
+    const stopName = formatBoardStopName(best);
+    let stopPoint = {
+      lat: best.stop_lat,
+      lng: best.stop_lng,
+      name: stopName,
+    };
+
+    if (!isValidCoord(stopPoint.lat, stopPoint.lng)) {
+      try {
+        stopPoint = await geocodeDestination(stopName);
+      } catch {
+        showToast("탑승 역·정류장 위치를 찾지 못했습니다");
+        return;
+      }
+    }
+
+    const origin = locationState.current;
+    const distM = best.dist || haversineM(origin, stopPoint);
+    const minutes = walkMin || walkMinutes(distM);
+
+    if (title) title.textContent = `${stopName} 도보 안내`;
+    if (sub) sub.textContent = `${shortLabel(origin.label)} → ${stopName}`;
+    if (distEl) {
+      distEl.textContent = `약 ${minutes}분 · ${formatDistance(distM)}`;
+    }
+
+    modal.hidden = false;
+
+    const container = document.getElementById("golden-walk-map");
+    if (!container) return;
+
+    clearGoldenWalkMap();
+    goldenWalkMap = createMap("golden-walk-map", origin);
+    if (!goldenWalkMap) return;
+
+    const startMarker = new kakao.maps.Marker({
+      map: goldenWalkMap,
+      position: toLatLng(origin),
+      title: "현재 위치",
+    });
+    const endMarker = new kakao.maps.Marker({
+      map: goldenWalkMap,
+      position: toLatLng(stopPoint),
+      title: stopName,
+    });
+    goldenWalkOverlays.markers.push(startMarker, endMarker);
+
+    let path = [toLatLng(origin), toLatLng(stopPoint)];
+    const walking = await requestWalkingRoute(origin, stopPoint);
+    if (walking?.path?.length) path = walking.path;
+
+    const line = new kakao.maps.Polyline({
+      map: goldenWalkMap,
+      path,
+      strokeWeight: 6,
+      strokeColor: "#22c55e",
+      strokeOpacity: 0.9,
+      strokeStyle: "solid",
+    });
+    goldenWalkOverlays.lines.push(line);
+
+    const bounds = new kakao.maps.LatLngBounds();
+    path.forEach((coord) => bounds.extend(coord));
+    goldenWalkMap.setBounds(bounds, 56, 56, 56, 56);
+    setTimeout(() => goldenWalkMap?.relayout(), 80);
+  }
+
+  function requestWalkingRoute(origin, destination) {
+    return new Promise((resolve) => {
+      if (!directions || !kakao.maps.services?.Directions) {
+        resolve(null);
+        return;
+      }
+      try {
+        const walkPriority = kakao.maps.services.RoutePriority?.WALK;
+        directions.route(
+          {
+            origin: toLatLng(origin),
+            destination: toLatLng(destination),
+            priority: walkPriority ?? kakao.maps.services.RoutePriority?.RECOMMEND,
+          },
+          (result, status) => {
+            if (status !== kakao.maps.services.Status.OK || !result?.routes?.length) {
+              resolve(null);
+              return;
+            }
+            const route = result.routes[0];
+            const path = [];
+            route.sections?.forEach((section) => {
+              section.roads?.forEach((road) => {
+                road.vertexes?.forEach((v, i) => {
+                  if (i % 2 === 0 && road.vertexes[i + 1] !== undefined) {
+                    path.push(new kakao.maps.LatLng(road.vertexes[i + 1], road.vertexes[i]));
+                  }
+                });
+              });
+            });
+            resolve(
+              path.length
+                ? { path, distance: route.summary?.distance, durationSec: route.summary?.duration }
+                : null
+            );
+          }
+        );
+      } catch {
+        resolve(null);
+      }
+    });
+  }
+
+  function bindGoldenBoardStopClick(best, analysis) {
+    lastGoldenBoard = { best, analysis };
+    const btn = document.getElementById("golden-board-stop-btn");
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      openGoldenWalkGuide(best, analysis.walk_minutes);
+    });
+  }
+
   function startGoldenClock() {
     clearInterval(goldenClockTimer);
     const tick = () => {
@@ -1425,22 +1599,29 @@
       pathEl.innerHTML = renderGoldenRouteLine(data);
     }
     if (schedule) {
+      const stopName = formatBoardStopName(best);
+      const lineLabel = formatBoardLineLabel(best);
       schedule.innerHTML = `
-        <article class="golden-card">
+        <article class="golden-card golden-card--board">
           <p class="golden-card__label">추천 탑승</p>
-          <p class="golden-card__value">${best.type} ${best.name}</p>
-          <p class="golden-card__sub">${best.stop_name} · ${best.eta}분 후 도착</p>
+          <button type="button" class="golden-board-stop" id="golden-board-stop-btn">
+            <span class="golden-board-stop__name">${stopName}</span>
+            <span class="golden-board-stop__line">${lineLabel}</span>
+          </button>
+          <p class="golden-card__eta">${best.eta}분 후 도착</p>
+          <p class="golden-card__tap-hint">역·정류장 이름을 누르면 도보 안내</p>
         </article>
         <article class="golden-card ${isUrgent ? "golden-card--urgent" : ""}">
           <p class="golden-card__label">도보 / 여유</p>
           <p class="golden-card__value ${isUrgent ? "golden-card__value--urgent" : ""}">${analysis.walk_minutes}분 / ${bufferMin}분</p>
-          ${isUrgent ? `<p class="golden-card__sub golden-card__value--urgent">여유 ${bufferMin}분 — 서둘러 출발하세요</p>` : ""}
+          ${isUrgent ? `<p class="golden-card__urgent-msg">서둘러서 출발하세요</p>` : ""}
         </article>
         <article class="golden-card">
-          <p class="golden-card__label">예상 귀가</p>
+          <p class="golden-card__label">예상귀가시간</p>
           <p class="golden-card__value">${analysis.arrival_time}</p>
           <p class="golden-card__sub">출발 권장 ${analysis.departure_time}</p>
         </article>`;
+      bindGoldenBoardStopClick(best, analysis);
     }
     if (gRouteTime) gRouteTime.textContent = route.duration_min ? `약 ${formatDuration(route.duration_min)}` : "—";
     if (gRouteMode) {
@@ -1454,7 +1635,8 @@
     }
   }
 
-  async function loadGoldenAnalysis() {
+  async function loadGoldenAnalysis(options = {}) {
+    const manageLoading = options.manageLoading !== false;
     if (!state.goldenDestination) {
       setGoldenResultsVisible(false);
       transitAnalysisData = null;
@@ -1464,6 +1646,7 @@
 
     const schedule = document.getElementById("golden-schedule");
     setGoldenResultsVisible(true);
+    if (manageLoading) showGoldenLoading(true);
     if (schedule) schedule.innerHTML = `<p class="loading-text">막차·귀가 분석 중…</p>`;
 
     try {
@@ -1493,6 +1676,8 @@
       if (schedule) {
         schedule.innerHTML = `<div class="info-banner"><p>분석 API 실패: ${err.message}<br>콘솔에서 status/bodyPreview 확인</p></div>`;
       }
+    } finally {
+      if (manageLoading) showGoldenLoading(false);
     }
   }
 
@@ -2207,6 +2392,10 @@
   document.getElementById("saved-clear-recent")?.addEventListener("click", clearRecentSearches);
 
   document.getElementById("golden-dest-search")?.addEventListener("click", searchGoldenDestination);
+  document.getElementById("golden-walk-close")?.addEventListener("click", closeGoldenWalkModal);
+  document.getElementById("golden-walk-modal")?.addEventListener("click", (e) => {
+    if (e.target.id === "golden-walk-modal") closeGoldenWalkModal();
+  });
   document.getElementById("golden-toggle-add-place")?.addEventListener("click", () => {
     const form = document.getElementById("golden-add-form");
     if (form) form.hidden = !form.hidden;
