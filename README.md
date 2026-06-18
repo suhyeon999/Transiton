@@ -52,9 +52,15 @@ git push -u origin main
 ## Vercel 설정
 
 1. [Vercel Dashboard](https://vercel.com) → 프로젝트 → Settings → Environment Variables
-2. **`AUTH_KEY`** 추가 (공공데이터포털 serviceKey)
-3. Production / Preview 모두 적용
-4. Redeploy
+2. **공공데이터 API 키** (버스·지하철 키가 따로면 둘 다 설정)
+
+| 변수명 | 용도 |
+|--------|------|
+| `AUTH_KEY_BUS` | 부산 BIMS 버스 실시간 |
+| `AUTH_KEY_SUBWAY` | 부산 Humetro 지하철 실시간 |
+| `AUTH_KEY` | (선택) 하나의 키로 둘 다 쓸 때 |
+
+Production / Preview 모두 적용 → **Redeploy**
 
 ### Kakao Maps (Vercel)
 

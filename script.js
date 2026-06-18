@@ -36,6 +36,7 @@
   let transitAnalysisData = null;
   let goldenClockTimer = null;
   let realtimeLoading = false;
+  let routeLiveTimer = null;
 
   document.addEventListener("securitypolicyviolation", (e) => {
     if (!e.blockedURI?.includes("dapi.kakao.com") && !e.sourceFile?.includes("sdk.js")) return;
@@ -585,6 +586,62 @@
     return withSeconds ? `${base}:${pad2(now.getSeconds())}` : base;
   }
 
+  function formatArrivalFromNow(durationMin) {
+    const arrival = new Date(Date.now() + durationMin * 60000);
+    return `${pad2(arrival.getHours())}:${pad2(arrival.getMinutes())}`;
+  }
+
+  function formatCountdownMs(ms) {
+    const total = Math.max(0, Math.floor(ms / 1000));
+    const min = Math.floor(total / 60);
+    const sec = total % 60;
+    if (min > 0) return `${min}분 ${pad2(sec)}초`;
+    return `${sec}초`;
+  }
+
+  function clearRouteLiveTimer() {
+    if (routeLiveTimer) {
+      clearInterval(routeLiveTimer);
+      routeLiveTimer = null;
+    }
+  }
+
+  function startRouteLiveTimer() {
+    clearRouteLiveTimer();
+    routeLiveTimer = setInterval(updateRouteLiveDisplay, 1000);
+    updateRouteLiveDisplay();
+  }
+
+  function updateRouteLiveDisplay() {
+    const info = state.routeInfo;
+    if (!info) return;
+
+    if (info.durationMin != null) {
+      info.arrivalTime = formatArrivalFromNow(info.durationMin);
+    }
+
+    const arrivalEl = document.querySelector(".summary-stat__value[data-role='arrival-time']");
+    if (arrivalEl) arrivalEl.textContent = info.arrivalTime;
+
+    const boardEl = document.getElementById("route-board-countdown");
+    if (boardEl && info.boardWaitDeadlineMs) {
+      const remain = info.boardWaitDeadlineMs - Date.now();
+      const mode = info.boardMode === "subway" ? "열차" : "버스";
+      boardEl.textContent =
+        remain > 0
+          ? `탑승 ${mode} 도착까지 ${formatCountdownMs(remain)}`
+          : `탑승 ${mode} 곧 도착`;
+    }
+
+    document.querySelectorAll("[data-role='leg-countdown']").forEach((el) => {
+      const deadline = Number(el.dataset.deadline);
+      if (!deadline) return;
+      const remain = deadline - Date.now();
+      el.textContent =
+        remain > 0 ? `도착까지 ${formatCountdownMs(remain)}` : "곧 도착";
+    });
+  }
+
   /* ---- Transit API (Flask / smarttransit.py) ---- */
 
   function logTransitApi(label, detail) {
@@ -685,7 +742,7 @@
     } else {
       const hint =
         location.hostname.includes("vercel.app")
-          ? "Vercel: AUTH_KEY 환경변수 확인 · 재배포 필요"
+          ? "Vercel: AUTH_KEY_BUS · AUTH_KEY_SUBWAY 환경변수 확인 · 재배포"
           : "python3 smarttransit.py 실행 후 http://127.0.0.1:5001 접속";
       statusEl.textContent = `실시간 API 미연결 — ${hint}`;
       statusEl.classList.add("api-status--warn");
@@ -924,6 +981,7 @@
 
   function renderTransitTimeline(legs) {
     if (!legs?.length) return "";
+    const now = Date.now();
     return legs
       .map((leg) => {
         const dotClass =
@@ -934,14 +992,24 @@
               : leg.type === "bus"
                 ? "timeline__dot--bus"
                 : `timeline__dot--subway line-${leg.line || "2"}`;
-        const chip = leg.chip ? `<span class="timeline__chip">${leg.chip}</span>` : "";
+        const board =
+          leg.board_stop ? `<p class="timeline__stop">탑승 · ${leg.board_stop}</p>` : "";
+        const alight =
+          leg.alight_stop ? `<p class="timeline__stop timeline__stop--alight">하차 · ${leg.alight_stop}</p>` : "";
+        const waitSec = leg.wait_sec ?? (leg.wait_min != null ? leg.wait_min * 60 : 0);
+        const countdown =
+          (leg.type === "bus" || leg.type === "subway") && waitSec > 0
+            ? `<span class="timeline__countdown" data-role="leg-countdown" data-deadline="${now + waitSec * 1000}">도착까지 ${formatCountdownMs(waitSec * 1000)}</span>`
+            : "";
         return `
         <li class="timeline__item">
           <div class="timeline__dot ${dotClass}"></div>
           <div class="timeline__content">
             <strong>${leg.label}</strong>
             <p>${leg.detail || ""}</p>
-            ${chip}
+            ${board}
+            ${alight}
+            ${countdown}
           </div>
         </li>`;
       })
@@ -1176,6 +1244,7 @@
 
   async function computeRoute() {
     if (!locationState.destination) return;
+    clearRouteLiveTimer();
 
     const origin = locationState.current;
     const dest = locationState.destination;
@@ -1185,10 +1254,11 @@
     let distance = straightDist;
     let durationMin = Math.max(5, Math.ceil(straightDist / 400));
     let fare = estimateFare(distance);
-    let arrivalTime = null;
     let legs = null;
     let transfers = 0;
     let modeLabel = "추정";
+    let boardMode = null;
+    let boardWaitSec = 0;
     let usingFallback = false;
     let apiDiagnostics = null;
 
@@ -1201,10 +1271,11 @@
         durationMin = transit.duration_min;
         distance = transit.distance_m || straightDist;
         fare = transit.fare;
-        arrivalTime = transit.arrival_time;
         legs = transit.legs;
         transfers = transit.transfers || 0;
         modeLabel = transit.mode_label || "대중교통";
+        boardMode = transit.board_mode;
+        boardWaitSec = transit.board_wait_sec || 0;
         usingFallback = transit.using_fallback;
         apiDiagnostics = transit.api_diagnostics;
       } catch (err) {
@@ -1235,16 +1306,18 @@
       }
     }
 
-    if (!arrivalTime) {
-      const arrival = new Date(Date.now() + durationMin * 60000);
-      arrivalTime = `${pad2(arrival.getHours())}:${pad2(arrival.getMinutes())}`;
-    }
+    const routeStartedAt = Date.now();
+    const arrivalTime = formatArrivalFromNow(durationMin);
 
     state.routeInfo = {
       distance,
       durationMin,
       fare,
       arrivalTime,
+      routeStartedAt,
+      boardWaitDeadlineMs: boardWaitSec > 0 ? routeStartedAt + boardWaitSec * 1000 : null,
+      boardMode,
+      boardWaitSec,
       path: routePath,
       originLabel: shortLabel(origin.label),
       destName: dest.name,
@@ -1258,6 +1331,7 @@
     renderRouteResult();
     updateMapRoute();
     updateHomeRoutePreview();
+    startRouteLiveTimer();
     if (apiAvailable) loadGoldenAnalysis();
   }
 
@@ -1270,6 +1344,20 @@
       stats[0].textContent = formatDuration(info.durationMin);
       stats[1].textContent = `${info.fare.toLocaleString()}원`;
       stats[2].textContent = info.arrivalTime;
+      stats[2].setAttribute("data-role", "arrival-time");
+    }
+
+    let countdownEl = document.getElementById("route-board-countdown");
+    const summaryCard = document.querySelector(".route-detail-card__summary");
+    if (summaryCard && info.boardWaitDeadlineMs) {
+      if (!countdownEl) {
+        countdownEl = document.createElement("p");
+        countdownEl.id = "route-board-countdown";
+        countdownEl.className = "route-board-countdown";
+        summaryCard.after(countdownEl);
+      }
+    } else if (countdownEl) {
+      countdownEl.remove();
     }
 
     document.querySelectorAll(".route-option__time").forEach((el, i) => {
@@ -1304,6 +1392,7 @@
           <div class="timeline__content">
             <strong>이동 ${formatDuration(info.durationMin)}</strong>
             <p>${formatDistance(info.distance)} · 백엔드 미연결 시 추정</p>
+            <p class="timeline__stop timeline__stop--alight">하차 · ${info.destName}</p>
           </div>
         </li>
         <li class="timeline__item">
@@ -1314,6 +1403,8 @@
           </div>
         </li>`;
     }
+
+    updateRouteLiveDisplay();
 
     const banner = document.getElementById("route-info-banner");
     if (banner) {
@@ -1337,7 +1428,7 @@
     if (homeTime) homeTime.textContent = `약 ${formatDuration(info.durationMin)}`;
     if (homeMode) {
       homeMode.textContent = info.modeLabel
-        ? `${info.modeLabel} · 환승 ${info.transfers || 0}회`
+        ? `${info.modeLabel} · 도착 ${info.arrivalTime}`
         : formatDistance(info.distance);
     }
     if (homePath) {

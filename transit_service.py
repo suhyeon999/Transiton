@@ -10,10 +10,17 @@ from datetime import datetime, timedelta
 
 import requests
 
-AUTH_KEY = os.environ.get(
-    "AUTH_KEY",
-    "f3fd387d5b830d1ebf5151bc407dc82e333d0ae9be04423290f6ff2db0def29d",
-)
+# 공공데이터 API 인증키 (Vercel Environment Variables)
+# 버스·지하철 키가 따로면 AUTH_KEY_BUS / AUTH_KEY_SUBWAY 각각 설정
+# 하나만 있으면 AUTH_KEY 로 둘 다 시도 (하위 호환)
+_DEFAULT_KEY = "f3fd387d5b830d1ebf5151bc407dc82e333d0ae9be04423290f6ff2db0def29d"
+AUTH_KEY = os.environ.get("AUTH_KEY", _DEFAULT_KEY)
+AUTH_KEY_BUS = os.environ.get("AUTH_KEY_BUS") or AUTH_KEY
+AUTH_KEY_SUBWAY = os.environ.get("AUTH_KEY_SUBWAY") or AUTH_KEY
+
+
+def _decode_key(raw):
+    return requests.utils.unquote(raw) if raw else ""
 
 BUS_STOP_ID = "505530000"  # 경성대부경대역 정류장
 SUBWAY_STATION_ID = "212"  # 경성대부경대역 (2호선)
@@ -39,7 +46,8 @@ class TransitService:
     def __init__(self, user_name="정수현"):
         self.user_name = user_name
         self.walking_speed = 1.11  # m/s
-        self.decoded_key = requests.utils.unquote(AUTH_KEY)
+        self.bus_key = _decode_key(AUTH_KEY_BUS)
+        self.subway_key = _decode_key(AUTH_KEY_SUBWAY)
         self.cur_lat = DEFAULT_LOCATION["lat"]
         self.cur_lon = DEFAULT_LOCATION["lon"]
         self.last_diagnostics = {}
@@ -86,7 +94,7 @@ class TransitService:
     def fetch_bus_api(self, bstopid=BUS_STOP_ID):
         """부산 BIMS 실시간 버스 도착 정보"""
         url = "http://61.43.246.153/openapi-data/service/busanBIMS/stopArr"
-        params = {"serviceKey": self.decoded_key, "bstopid": bstopid, "_type": "json"}
+        params = {"serviceKey": self.bus_key, "bstopid": bstopid, "_type": "json"}
         res, diag = self._fetch_json_with_diag("busBIMS", url, params)
         self.last_diagnostics["bus"] = diag
 
@@ -142,7 +150,7 @@ class TransitService:
     def fetch_subway_api(self, station_id=SUBWAY_STATION_ID):
         """부산교통공사 Humetro 실시간 지하철 도착 정보"""
         url = "http://data.humetro.busan.kr/cyber/service/arrival/getArrivalList"
-        params = {"serviceKey": self.decoded_key, "stationId": station_id, "act": "json"}
+        params = {"serviceKey": self.subway_key, "stationId": station_id, "act": "json"}
         res, diag = self._fetch_json_with_diag("subwayHumetro", url, params)
         self.last_diagnostics["subway"] = diag
 
@@ -275,7 +283,19 @@ class TransitService:
         total_dist = haversine_m(origin_lat, origin_lng, dest_lat, dest_lng)
 
         bus_pick = bus["arrivals"][0] if bus.get("arrivals") else {"line_no": "155", "eta": 15, "destination": ""}
-        subway_pick = subway["arrivals"][0] if subway.get("arrivals") else {"direction": "양산 방면", "eta": 10}
+        subway_pick = subway["arrivals"][0] if subway.get("arrivals") else {"direction": "양산 방면", "eta": 10, "arrival_sec": 600}
+
+        bus_wait_sec = max(0, int(bus_pick.get("eta", 0)) * 60)
+        subway_wait_sec = max(0, int(subway_pick.get("arrival_sec") or subway_pick.get("eta", 0) * 60))
+
+        def alight_name(default):
+            if dest_name.endswith("역"):
+                return dest_name
+            if "부산역" in dest_name or dest_name == "부산역":
+                return "부산역"
+            if "서면" in dest_name:
+                return "서면역"
+            return default
 
         walk_bus = self._walk_minutes(bus["dist"])
         walk_sub = self._walk_minutes(subway["dist"])
@@ -286,8 +306,10 @@ class TransitService:
         legs = []
         transfers = 0
         fare = 1500
+        board_wait_sec = subway_wait_sec if use_subway else bus_wait_sec
 
         if use_subway:
+            line2_alight = "서면역" if total_dist > 4500 else alight_name("부산역")
             legs.append(
                 {
                     "type": "walk",
@@ -303,15 +325,17 @@ class TransitService:
                     "line": "2",
                     "minutes": line2_min,
                     "wait_min": subway_pick["eta"],
+                    "wait_sec": subway_wait_sec,
                     "label": f"2호선 · {line2_min}분",
                     "detail": f"{subway['stop_name']} · {subway_pick['direction']}",
-                    "chip": f"{subway_pick['eta']}분 후 열차",
                     "board_stop": subway["stop_name"],
+                    "alight_stop": line2_alight,
                 }
             )
             fare += 300
             if total_dist > 4500:
                 transfers += 1
+                line1_alight = alight_name("부산역")
                 legs.append(
                     {
                         "type": "transfer",
@@ -326,14 +350,17 @@ class TransitService:
                         "type": "subway",
                         "line": "1",
                         "minutes": line1_min,
+                        "wait_min": 0,
+                        "wait_sec": 0,
                         "label": f"1호선 · {line1_min}분",
-                        "detail": "서면역 → 부산역 방면",
-                        "chip": "환승 후 탑승",
+                        "detail": f"서면역 → {line1_alight} 방면",
                         "board_stop": "서면역",
+                        "alight_stop": line1_alight,
                     }
                 )
                 fare += 300
         else:
+            bus_alight = bus_pick.get("destination") or alight_name("부산역")
             legs.append(
                 {
                     "type": "walk",
@@ -349,10 +376,11 @@ class TransitService:
                     "line": bus_pick["line_no"],
                     "minutes": ride_min,
                     "wait_min": bus_pick["eta"],
+                    "wait_sec": bus_wait_sec,
                     "label": f"{bus_pick['line_no']}번 · {ride_min}분",
-                    "detail": f"{bus['stop_name']} → {bus_pick.get('destination') or dest_name}",
-                    "chip": f"{bus_pick['eta']}분 후 도착",
+                    "detail": f"{bus['stop_name']} → {bus_alight}",
                     "board_stop": bus["stop_name"],
+                    "alight_stop": bus_alight,
                 }
             )
 
@@ -379,7 +407,11 @@ class TransitService:
             "fare": min(2500, fare + transfers * 200),
             "transfers": transfers,
             "arrival_time": arrival.strftime("%H:%M"),
+            "arrival_at": arrival.isoformat(),
+            "computed_at": now.isoformat(),
             "departure_time": now.strftime("%H:%M"),
+            "board_wait_sec": board_wait_sec,
+            "board_mode": "subway" if use_subway else "bus",
             "mode": "subway" if use_subway else "bus",
             "mode_label": "지하철" if use_subway else "버스",
             "legs": legs,
