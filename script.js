@@ -28,16 +28,93 @@
   let kakaoBootstrapError = null;
   const PLACES_MAX_RADIUS = 20000;
 
+  function formatErrorForLog(err, depth = 0) {
+    if (err == null) return null;
+    if (typeof err === "string") return { message: err };
+    const out = {
+      name: err.name,
+      message: err.message,
+      code: err.code,
+      location: err.location,
+      bootstrapStep: err.bootstrapStep,
+      sdkUrl: err.sdkUrl,
+      hostname: err.hostname,
+      eventType: err.eventType,
+    };
+    if (err.stack) out.stack = err.stack;
+    if (err.diag) out.diag = err.diag;
+    if (err.cause && depth < 4) out.cause = formatErrorForLog(err.cause, depth + 1);
+    return out;
+  }
+
   function logKakao(label, detail) {
-    if (detail !== undefined) {
-      console.log(`[TransitON:Kakao] ${label}`, detail);
-    } else {
-      console.log(`[TransitON:Kakao] ${label}`);
+    console.log(`[TransitON:Kakao] ${label}`);
+    if (detail instanceof Error) {
+      console.log(formatErrorForLog(detail));
+      if (detail.stack) console.log(detail.stack);
+    } else if (detail !== undefined) {
+      console.log(detail);
     }
   }
 
   function logKakaoError(label, detail) {
-    console.error(`[TransitON:Kakao] ${label}`, detail ?? "");
+    console.error(`[TransitON:Kakao] ${label}`);
+
+    if (detail instanceof Error) {
+      const info = formatErrorForLog(detail);
+      console.error("message:", info?.message ?? "(empty)");
+      console.error("name:", info?.name ?? "Error");
+      if (info?.code) console.error("code:", info.code);
+      if (info?.location) console.error("location:", info.location);
+      if (info?.bootstrapStep) console.error("bootstrapStep:", info.bootstrapStep);
+      if (info?.sdkUrl) console.error("sdkUrl:", info.sdkUrl);
+      if (detail.stack) console.error("stack:\n" + detail.stack);
+      if (info?.cause) console.error("cause:", info.cause);
+      return;
+    }
+
+    if (typeof detail === "object" && detail !== null) {
+      Object.entries(detail).forEach(([key, val]) => {
+        if (val instanceof Error) {
+          console.error(`${key}.message:`, val.message);
+          console.error(`${key}.name:`, val.name);
+          if (val.stack) console.error(`${key}.stack:\n` + val.stack);
+          if (val.cause) console.error(`${key}.cause:`, formatErrorForLog(val.cause));
+        } else {
+          console.error(`${key}:`, val);
+        }
+      });
+      return;
+    }
+
+    console.error(String(detail ?? ""));
+  }
+
+  function makeKakaoError(message, location, extra = {}) {
+    const err = new Error(message);
+    err.location = location;
+    Object.assign(err, extra);
+    return err;
+  }
+
+  function showKakaoBootstrapError(err) {
+    const message = err?.message || "알 수 없는 오류";
+    const location = err?.location ? ` @ ${err.location}` : "";
+    const full = `${message}${location}`;
+
+    logKakaoError("부트스트랩 실패 (상세)", err instanceof Error ? err : { message: full, raw: err });
+
+    const banner = document.getElementById("kakao-error-banner");
+    if (banner) {
+      banner.hidden = false;
+      banner.textContent = `카카오맵 초기화 실패: ${full}`;
+    }
+
+    if (mapLocationLabel) {
+      mapLocationLabel.textContent = `카카오맵 오류 · ${message}`;
+    }
+
+    showToast(`카카오맵 실패: ${message}`);
   }
 
   const mapLayers = {
@@ -170,16 +247,12 @@
     try {
       await kakaoReady;
     } catch (err) {
-      const e = new Error(err?.message || "KAKAO_NOT_READY");
-      e.code = "KAKAO_NOT_READY";
-      e.cause = err || kakaoBootstrapError;
-      throw e;
+      if (err instanceof Error) throw err;
+      throw makeKakaoError(String(err), "script.js:whenKakaoReady:reject");
     }
     if (!kakaoServicesReady) {
-      const err = new Error(kakaoBootstrapError?.message || "KAKAO_NOT_READY");
-      err.code = "KAKAO_NOT_READY";
-      err.cause = kakaoBootstrapError;
-      throw err;
+      if (kakaoBootstrapError instanceof Error) throw kakaoBootstrapError;
+      throw makeKakaoError("KAKAO_NOT_READY", "script.js:whenKakaoReady:services", { code: "KAKAO_NOT_READY" });
     }
   }
 
@@ -361,7 +434,7 @@
       renderNearbyList();
       updateMapRoute();
     } catch (err) {
-      logKakaoError("주변 정류장 로드 실패", err.message);
+      logKakaoError("주변 정류장 로드 실패", err instanceof Error ? err : new Error(String(err)));
       const container = document.getElementById("nearby-list");
       if (container) {
         container.innerHTML = `<p class="loading-text">카카오맵 준비 후 주변 정류장을 표시합니다.</p>`;
@@ -795,7 +868,7 @@
       })
       .then((results) => showAutocompleteResults(results))
       .catch((err) => {
-        logKakaoError("자동완성 실패", err.message);
+        logKakaoError("자동완성 실패", err instanceof Error ? err : new Error(String(err)));
         hideAutocomplete();
       });
   }
@@ -814,7 +887,7 @@
       if (!silent) showToast("목적지를 검색 중…");
       dest = await geocodeDestination(query);
     } catch (err) {
-      logKakaoError("목적지 검색 실패", { query, code: err.code, message: err.message, diag: err.diag, cause: err.cause });
+      logKakaoError("목적지 검색 실패", err instanceof Error ? err : new Error(String(err)));
       if (!silent) {
         if (err.code === "KAKAO_NOT_READY") {
           showToast(`카카오맵 준비 실패 (${location.hostname}) — F12 콘솔 확인`);
@@ -1062,17 +1135,36 @@
     );
   }
 
+  function isKakaoSdkReady() {
+    return !!(window.kakao && window.kakao.maps && typeof window.kakao.maps.load === "function");
+  }
+
+  function findKakaoSdkScriptTag() {
+    return (
+      document.querySelector("script[data-transiton-kakao-sdk]") ||
+      [...document.scripts].find((s) => s.src && s.src.includes("dapi.kakao.com/v2/maps/sdk.js"))
+    );
+  }
+
   function waitForKakaoGlobal(timeoutMs = 15000) {
     return new Promise((resolve, reject) => {
       const deadline = Date.now() + timeoutMs;
+      const at = "script.js:waitForKakaoGlobal";
 
       (function tick() {
-        if (window.kakao?.maps?.load) {
+        if (isKakaoSdkReady()) {
+          logKakao("window.kakao.maps.load 확인됨", { at });
           resolve();
           return;
         }
         if (Date.now() > deadline) {
-          reject(new Error("KAKAO_GLOBAL_TIMEOUT"));
+          reject(
+            makeKakaoError(
+              `KAKAO_GLOBAL_TIMEOUT: window.kakao.maps.load 없음 (${timeoutMs}ms)`,
+              at,
+              { code: "KAKAO_GLOBAL_TIMEOUT", hasKakao: !!window.kakao, hasMaps: !!window.kakao?.maps }
+            )
+          );
           return;
         }
         setTimeout(tick, 50);
@@ -1081,102 +1173,230 @@
   }
 
   function injectKakaoSdkScript() {
+    const at = "script.js:injectKakaoSdkScript";
+
     return new Promise((resolve, reject) => {
-      const existing = document.querySelector("script[data-transiton-kakao-sdk]");
+      if (isKakaoSdkReady()) {
+        logKakao("SDK 이미 로드됨 — inject 생략", { at: `${at}:L1-skip` });
+        resolve();
+        return;
+      }
+
+      const existing = findKakaoSdkScriptTag();
       if (existing) {
-        if (window.kakao?.maps?.load) {
+        logKakao("기존 SDK script 태그 감지", { at: `${at}:L2-existing`, src: existing.src });
+
+        if (isKakaoSdkReady()) {
           resolve();
           return;
         }
-        existing.addEventListener("load", () => waitForKakaoGlobal().then(resolve).catch(reject));
-        existing.addEventListener("error", () => reject(new Error("KAKAO_SCRIPT_ERROR")));
+
+        const onLoad = () => {
+          waitForKakaoGlobal()
+            .then(resolve)
+            .catch((e) => {
+              reject(
+                makeKakaoError(
+                  `SDK onload 후 kakao 객체 대기 실패: ${e.message}`,
+                  `${at}:L2-existing→waitForKakaoGlobal`,
+                  { code: e.code || "KAKAO_WAIT_FAILED", cause: e, sdkUrl: existing.src }
+                )
+              );
+            });
+        };
+
+        const onError = (event) => {
+          reject(
+            makeKakaoError(
+              "KAKAO_SCRIPT_ERROR: 기존 script 태그 load error",
+              `${at}:L2-existing.onerror`,
+              {
+                code: "KAKAO_SCRIPT_ERROR",
+                sdkUrl: existing.src,
+                hostname: location.hostname,
+                eventType: event?.type,
+              }
+            )
+          );
+        };
+
+        existing.addEventListener("load", onLoad, { once: true });
+        existing.addEventListener("error", onError, { once: true });
+
+        if (existing.readyState === "complete" || existing.readyState === "loaded") {
+          onLoad();
+        }
         return;
       }
+
+      logKakao("SDK script 태그 동적 추가", { at: `${at}:L3-create`, src: KAKAO_SDK_URL });
 
       const script = document.createElement("script");
       script.src = KAKAO_SDK_URL;
       script.async = true;
       script.dataset.transitonKakaoSdk = "true";
-      script.onload = () => {
-        logKakao("SDK script onload");
-        waitForKakaoGlobal().then(resolve).catch(reject);
+
+      script.onload = (event) => {
+        logKakao("SDK script onload", { at: `${at}:L3-onload`, src: script.src });
+        waitForKakaoGlobal()
+          .then(resolve)
+          .catch((e) => {
+            reject(
+              makeKakaoError(
+                `SDK onload 후 kakao 객체 대기 실패: ${e.message}`,
+                `${at}:L3-onload→waitForKakaoGlobal`,
+                { code: e.code || "KAKAO_WAIT_FAILED", cause: e, sdkUrl: script.src, eventType: event?.type }
+              )
+            );
+          });
       };
-      script.onerror = () => reject(new Error("KAKAO_SCRIPT_ERROR"));
+
+      script.onerror = (event) => {
+        reject(
+          makeKakaoError(
+            "KAKAO_SCRIPT_ERROR: script.onerror — 네트워크/CSP/도메인/키 문제",
+            `${at}:L3-script.onerror`,
+            {
+              code: "KAKAO_SCRIPT_ERROR",
+              sdkUrl: KAKAO_SDK_URL,
+              hostname: location.hostname,
+              protocol: location.protocol,
+              eventType: event?.type,
+            }
+          )
+        );
+      };
+
       document.head.appendChild(script);
     });
   }
 
   function initKakaoServicesInsideLoad() {
+    const at = "script.js:initKakaoServicesInsideLoad";
+
     return new Promise((resolve, reject) => {
-      logKakao("kakao.maps.load() 호출");
-      kakao.maps.load(function () {
-        try {
-          logKakao("kakao.maps.load 콜백", {
-            hostname: location.hostname,
-            hasServices: !!kakao.maps.services,
-            hasPlaces: typeof kakao.maps.services?.Places,
-            hasGeocoder: typeof kakao.maps.services?.Geocoder,
-          });
+      if (!isKakaoSdkReady()) {
+        reject(makeKakaoError("kakao.maps.load 호출 불가", `${at}:precheck`, { code: "KAKAO_NOT_READY" }));
+        return;
+      }
 
-          if (typeof kakao.maps.services?.Places !== "function") {
-            throw new Error("Places 생성자 없음 — libraries=services 확인");
+      logKakao("kakao.maps.load() 호출", { at: `${at}:L1-call` });
+
+      const loadTimeout = setTimeout(() => {
+        reject(
+          makeKakaoError(
+            "kakao.maps.load 콜백 타임아웃 (10s) — 도메인/키 미등록 가능",
+            `${at}:L2-load-timeout`,
+            { code: "KAKAO_LOAD_TIMEOUT", hostname: location.hostname }
+          )
+        );
+      }, 10000);
+
+      try {
+        kakao.maps.load(function () {
+          clearTimeout(loadTimeout);
+          const cbAt = `${at}:L3-callback`;
+
+          try {
+            logKakao("kakao.maps.load 콜백 진입", {
+              at: cbAt,
+              hostname: location.hostname,
+              hasServices: !!kakao.maps.services,
+              hasPlaces: typeof kakao.maps.services?.Places,
+              hasGeocoder: typeof kakao.maps.services?.Geocoder,
+            });
+
+            if (typeof kakao.maps.services?.Places !== "function") {
+              throw makeKakaoError(
+                "Places 생성자 없음 — libraries=services 확인",
+                `${cbAt}:Places-check`
+              );
+            }
+            if (typeof kakao.maps.services?.Geocoder !== "function") {
+              throw makeKakaoError(
+                "Geocoder 생성자 없음 — libraries=services 확인",
+                `${cbAt}:Geocoder-check`
+              );
+            }
+
+            geocoder = new kakao.maps.services.Geocoder();
+            places = new kakao.maps.services.Places();
+
+            if (!geocoder || !places) {
+              throw makeKakaoError("Places/Geocoder 인스턴스 생성 실패", `${cbAt}:instance-check`);
+            }
+
+            if (kakao.maps.services.Directions) {
+              directions = new kakao.maps.services.Directions();
+            }
+
+            kakaoServicesReady = true;
+            logKakao("서비스 준비 완료", {
+              at: `${cbAt}:success`,
+              places: !!places,
+              geocoder: !!geocoder,
+              directions: !!directions,
+            });
+            resolve();
+          } catch (err) {
+            kakaoServicesReady = false;
+            const wrapped =
+              err instanceof Error
+                ? err
+                : makeKakaoError(String(err), `${cbAt}:catch`);
+            if (!wrapped.location) wrapped.location = `${cbAt}:catch`;
+            logKakaoError("kakao.maps.load 콜백 내부 예외", wrapped);
+            reject(wrapped);
           }
-          if (typeof kakao.maps.services?.Geocoder !== "function") {
-            throw new Error("Geocoder 생성자 없음 — libraries=services 확인");
-          }
-
-          geocoder = new kakao.maps.services.Geocoder();
-          places = new kakao.maps.services.Places();
-
-          if (!geocoder || !places) {
-            throw new Error("Places/Geocoder 인스턴스 생성 실패");
-          }
-
-          if (kakao.maps.services.Directions) {
-            directions = new kakao.maps.services.Directions();
-          }
-
-          kakaoServicesReady = true;
-          logKakao("서비스 준비 완료", {
-            places: !!places,
-            geocoder: !!geocoder,
-            directions: !!directions,
-          });
-          resolve();
-        } catch (err) {
-          kakaoServicesReady = false;
-          reject(err);
-        }
-      });
+        });
+      } catch (err) {
+        clearTimeout(loadTimeout);
+        const wrapped = makeKakaoError(
+          `kakao.maps.load 동기 예외: ${err?.message || err}`,
+          `${at}:L1-sync-throw`,
+          { cause: err }
+        );
+        logKakaoError("kakao.maps.load 동기 예외", wrapped);
+        reject(wrapped);
+      }
     });
   }
 
   async function bootstrapKakao() {
+    let bootstrapStep = "start";
+
     try {
       logKakao("부트스트랩 시작", { hostname: location.hostname, protocol: location.protocol });
 
+      bootstrapStep = "injectKakaoSdkScript";
       await injectKakaoSdkScript();
+
+      bootstrapStep = "initKakaoServicesInsideLoad";
       await initKakaoServicesInsideLoad();
 
+      bootstrapStep = "createMap";
       kakaoMap = createMap("map", locationState.current);
       if (!kakaoMap) {
-        throw new Error("지도 컨테이너(#map) 초기화 실패");
+        throw makeKakaoError("지도 컨테이너(#map) 초기화 실패", "script.js:bootstrapKakao:createMap");
       }
       kakaoMap.relayout();
+
+      bootstrapStep = "done";
+      logKakao("부트스트랩 성공", { at: "script.js:bootstrapKakao:done" });
+
+      const banner = document.getElementById("kakao-error-banner");
+      if (banner) banner.hidden = true;
 
       kakaoReadyResolve(true);
       requestCurrentLocation(false);
       setDestination(state.destination, { silent: true });
     } catch (err) {
-      kakaoBootstrapError = err;
+      kakaoBootstrapError = err instanceof Error ? err : makeKakaoError(String(err), "script.js:bootstrapKakao");
+      kakaoBootstrapError.bootstrapStep = bootstrapStep;
       kakaoServicesReady = false;
-      logKakaoError("부트스트랩 실패", {
-        message: err.message,
-        stack: err.stack,
-        hostname: location.hostname,
-        keyPrefix: `${KAKAO_APP_KEY.slice(0, 8)}…`,
-      });
-      kakaoReadyReject(err);
+
+      showKakaoBootstrapError(kakaoBootstrapError);
+      kakaoReadyReject(kakaoBootstrapError);
       updateOriginField();
       requestCurrentLocation(false);
     }

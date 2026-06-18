@@ -1187,6 +1187,12 @@ ul {
   color: #92400e;
 }
 
+#kakao-error-banner {
+  margin: 8px 16px 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 /* Saved */
 
 .saved-panel {
