@@ -694,6 +694,135 @@ ul {
   gap: 4px;
 }
 
+.tabs--compact {
+  margin-bottom: 12px;
+}
+
+.tabs--compact .tab {
+  flex: 1;
+  padding: 8px 10px;
+  font-size: 0.82rem;
+}
+
+.search-panel {
+  display: none;
+}
+
+.search-panel--active {
+  display: block;
+}
+
+.suggestion-item__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.pin-btn {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.pin-btn--active {
+  background: #fef3c7;
+}
+
+.golden-dest-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.golden-dest-form .route-input {
+  flex: 1;
+}
+
+.btn--sm {
+  padding: 10px 14px;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.btn--secondary {
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+.place-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.place-chips__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.place-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.place-chip--active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.place-chip__delete {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.golden-add-place {
+  margin-top: 8px;
+  font-size: 0.85rem;
+}
+
+.golden-add-place summary {
+  cursor: pointer;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.golden-add-place__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.section--compact {
+  margin-bottom: 16px;
+}
+
+.section--compact .section__title {
+  margin-bottom: 10px;
+}
+
 .suggestion-item {
   display: flex;
   align-items: center;

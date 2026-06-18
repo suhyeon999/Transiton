@@ -7,8 +7,48 @@ import math
 import os
 import traceback
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import requests
+
+KST = ZoneInfo("Asia/Seoul")
+
+# 부산 지하철 주요 역 (목적지와 가장 가까운 역을 하차역으로 사용)
+BUSAN_SUBWAY_STATIONS = [
+    {"name": "다대포해수욕장역", "lat": 35.051, "lng": 128.967},
+    {"name": "남포역", "lat": 35.097, "lng": 129.032},
+    {"name": "부산역", "lat": 35.1156, "lng": 129.0419},
+    {"name": "중앙역", "lat": 35.110, "lng": 129.037},
+    {"name": "초량역", "lat": 35.120, "lng": 129.043},
+    {"name": "부원역", "lat": 35.129, "lng": 129.045},
+    {"name": "동래역", "lat": 35.206, "lng": 129.078},
+    {"name": "교대역", "lat": 35.196, "lng": 129.080},
+    {"name": "연산역", "lat": 35.180, "lng": 129.089},
+    {"name": "수영역", "lat": 35.145, "lng": 129.113},
+    {"name": "민락역", "lat": 35.156, "lng": 129.128},
+    {"name": "센텀시티역", "lat": 35.169, "lng": 129.131},
+    {"name": "벡스코역", "lat": 35.168, "lng": 129.137},
+    {"name": "해운대역", "lat": 35.163, "lng": 129.158},
+    {"name": "중동역", "lat": 35.158, "lng": 129.166},
+    {"name": "장산역", "lat": 35.168, "lng": 129.175},
+    {"name": "금정역", "lat": 35.243, "lng": 129.092},
+    {"name": "서면역", "lat": 35.1579, "lng": 129.0594},
+    {"name": "연지공원역", "lat": 35.136, "lng": 129.088},
+    {"name": "경성대·부경대역", "lat": 35.134, "lng": 129.096},
+    {"name": "대연역", "lat": 35.128, "lng": 129.091},
+    {"name": "못골역", "lat": 35.148, "lng": 129.065},
+    {"name": "지게골역", "lat": 35.152, "lng": 129.055},
+    {"name": "부암역", "lat": 35.128, "lng": 129.047},
+    {"name": "가야역", "lat": 35.114, "lng": 129.044},
+    {"name": "양산역", "lat": 35.338, "lng": 129.033},
+    {"name": "온천장역", "lat": 35.222, "lng": 129.085},
+    {"name": "사직역", "lat": 35.195, "lng": 129.065},
+    {"name": "미남역", "lat": 35.205, "lng": 129.064},
+]
+
+
+def now_kst():
+    return datetime.now(KST)
 
 # 공공데이터 API 인증키 (Vercel Environment Variables)
 # 버스·지하철 키가 따로면 AUTH_KEY_BUS / AUTH_KEY_SUBWAY 각각 설정
@@ -256,7 +296,7 @@ class TransitService:
             "bus_ok": bus_ok,
             "subway_ok": subway_ok,
             "using_fallback": not bus_ok or not subway_ok,
-            "updated_at": datetime.now().strftime("%H:%M:%S"),
+            "updated_at": now_kst().strftime("%H:%M:%S"),
             "api_diagnostics": self.last_diagnostics,
         }
 
@@ -268,6 +308,19 @@ class TransitService:
 
     def _walk_minutes(self, meters):
         return max(1, round((meters / self.walking_speed) / 60))
+
+    def _nearest_subway_station(self, lat, lng):
+        station = min(
+            BUSAN_SUBWAY_STATIONS,
+            key=lambda s: haversine_m(lat, lng, s["lat"], s["lng"]),
+        )
+        return station["name"]
+
+    def _resolve_alight_stop(self, dest_lat, dest_lng, dest_name):
+        name = (dest_name or "").strip()
+        if name.endswith("역"):
+            return name
+        return self._nearest_subway_station(dest_lat, dest_lng)
 
     def plan_transit_route(
         self,
@@ -290,14 +343,7 @@ class TransitService:
         bus_wait_sec = max(0, int(bus_pick.get("eta", 0)) * 60)
         subway_wait_sec = max(0, int(subway_pick.get("arrival_sec") or subway_pick.get("eta", 0) * 60))
 
-        def alight_name(default):
-            if dest_name.endswith("역"):
-                return dest_name
-            if "부산역" in dest_name or dest_name == "부산역":
-                return "부산역"
-            if "서면" in dest_name:
-                return "서면역"
-            return default
+        alight_stop = self._resolve_alight_stop(dest_lat, dest_lng, dest_name)
 
         walk_bus = self._walk_minutes(bus["dist"])
         walk_sub = self._walk_minutes(subway["dist"])
@@ -311,7 +357,7 @@ class TransitService:
         board_wait_sec = subway_wait_sec if use_subway else bus_wait_sec
 
         if use_subway:
-            line2_alight = "서면역" if total_dist > 4500 else alight_name("부산역")
+            line2_alight = alight_stop
             legs.append(
                 {
                     "type": "walk",
@@ -335,9 +381,9 @@ class TransitService:
                 }
             )
             fare += 300
-            if total_dist > 4500:
+            if total_dist > 4500 and alight_stop not in ("서면역", "연산역", "교대역"):
                 transfers += 1
-                line1_alight = alight_name("부산역")
+                line1_alight = alight_stop
                 legs.append(
                     {
                         "type": "transfer",
@@ -362,7 +408,7 @@ class TransitService:
                 )
                 fare += 300
         else:
-            bus_alight = bus_pick.get("destination") or alight_name("부산역")
+            bus_alight = alight_stop
             legs.append(
                 {
                     "type": "walk",
@@ -398,7 +444,7 @@ class TransitService:
 
         wait_min = legs[1].get("wait_min", 0) if len(legs) > 1 else 0
         move_min = sum(l["minutes"] for l in legs) + wait_min
-        now = datetime.now()
+        now = now_kst()
         arrival = now + timedelta(minutes=move_min)
 
         return {
@@ -453,7 +499,7 @@ class TransitService:
         best = min([bus_pick, subway_pick], key=lambda x: x["eta"])
         walk_t, golden_t = self.calculate_golden_time(best["eta"], best["dist"])
 
-        now = datetime.now()
+        now = now_kst()
         ride_minutes = route["duration_min"] - walk_t - best["eta"]
         ride_minutes = max(5, ride_minutes)
         departure_time = now + timedelta(minutes=max(0, golden_t))

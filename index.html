@@ -138,14 +138,19 @@
         </div>
 
         <div class="search-suggestions" id="search-suggestions">
-          <p class="search-suggestions__label">인기 목적지</p>
-          <ul class="suggestion-list" role="listbox">
-            <li><button type="button" class="suggestion-item" data-dest="부산역"><span class="suggestion-item__icon">🚉</span><span><strong>부산역</strong><small>동구 중앙대로</small></span></button></li>
-            <li><button type="button" class="suggestion-item" data-dest="서면역"><span class="suggestion-item__icon">🚇</span><span><strong>서면역</strong><small>부산진구 중앙대로</small></span></button></li>
-            <li><button type="button" class="suggestion-item" data-dest="광안리해수욕장"><span class="suggestion-item__icon">🏖️</span><span><strong>광안리해수욕장</strong><small>수영구 광안해변로</small></span></button></li>
-            <li><button type="button" class="suggestion-item" data-dest="센텀시티"><span class="suggestion-item__icon">🏬</span><span><strong>센텀시티</strong><small>해운대구 센텀중앙로</small></span></button></li>
-            <li><button type="button" class="suggestion-item" data-dest="국제시장"><span class="suggestion-item__icon">🛍️</span><span><strong>국제시장</strong><small>중구 광복로</small></span></button></li>
-          </ul>
+          <div class="tabs tabs--compact" role="tablist">
+            <button class="tab tab--active" type="button" role="tab" data-search-tab="history">검색 기록</button>
+            <button class="tab" type="button" role="tab" data-search-tab="frequent">자주 가는 경로</button>
+          </div>
+          <div class="search-panel search-panel--active" id="search-panel-history">
+            <ul class="suggestion-list" id="search-history-list" role="listbox"></ul>
+            <p class="empty-hint" id="search-history-empty" hidden>최근 검색 기록이 없습니다.</p>
+            <button class="text-btn text-btn--center" type="button" id="clear-search-history" hidden>검색 기록 전체 삭제</button>
+          </div>
+          <div class="search-panel" id="search-panel-frequent">
+            <ul class="suggestion-list" id="frequent-routes-list" role="listbox"></ul>
+            <p class="empty-hint" id="frequent-routes-empty">고정한 자주 가는 경로가 없습니다.<br>경로 찾기 후 📌 버튼으로 추가하세요.</p>
+          </div>
         </div>
 
         <button class="btn btn--primary btn--full" type="button" id="search-submit">
@@ -296,13 +301,30 @@
       </header>
 
       <div class="content">
+        <section class="section section--compact">
+          <h2 class="section__title">목적지</h2>
+          <div class="golden-dest-form">
+            <input type="text" id="golden-dest-input" class="route-input" placeholder="목적지 검색 (예: 해운대역)" autocomplete="off">
+            <button class="btn btn--primary btn--sm" type="button" id="golden-dest-search">분석</button>
+          </div>
+          <ul class="place-chips" id="golden-saved-places" role="list"></ul>
+          <details class="golden-add-place">
+            <summary>자주 가는 목적지 등록</summary>
+            <div class="golden-add-place__fields">
+              <input type="text" id="golden-place-label" class="route-input" placeholder="이름 (집, 친구집)" maxlength="20">
+              <input type="text" id="golden-place-query" class="route-input" placeholder="주소 또는 장소명">
+              <button class="btn btn--secondary btn--sm btn--full" type="button" id="golden-place-add">등록</button>
+            </div>
+          </details>
+        </section>
+
         <div class="golden-hero">
           <div class="golden-hero__clock">
             <span class="golden-hero__time" id="golden-time">--:--:--</span>
-            <span class="golden-hero__label">지금 출발 권장</span>
+            <span class="golden-hero__label">현재 시각</span>
           </div>
           <p class="golden-hero__desc" id="golden-desc">
-            <strong id="golden-destination">집</strong>까지 막차를 타려면<br>
+            <strong id="golden-destination">목적지 미선택</strong>까지 막차를 타려면<br>
             <em id="golden-depart-em">--:--</em>까지 출발하세요
           </p>
         </div>
@@ -348,85 +370,14 @@
 
       <div class="content">
         <div class="saved-panel saved-panel--active" id="panel-favorites">
-          <ul class="saved-list">
-            <li>
-              <button class="saved-item" type="button" data-nav="routes">
-                <span class="saved-item__icon saved-item__icon--star">⭐</span>
-                <div class="saved-item__body">
-                  <strong>집 → 회사</strong>
-                  <p>해운대구 우동 → 부산역 · 28분</p>
-                </div>
-                <svg class="saved-item__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
-              </button>
-            </li>
-            <li>
-              <button class="saved-item" type="button" data-nav="routes">
-                <span class="saved-item__icon saved-item__icon--star">⭐</span>
-                <div class="saved-item__body">
-                  <strong>센텀시티 쇼핑</strong>
-                  <p>우동 → 센텀시티 · 15분</p>
-                </div>
-                <svg class="saved-item__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
-              </button>
-            </li>
-            <li>
-              <button class="saved-item" type="button" data-nav="routes">
-                <span class="saved-item__icon saved-item__icon--star">⭐</span>
-                <div class="saved-item__body">
-                  <strong>광안리 야경</strong>
-                  <p>해운대 → 광안리 · 22분</p>
-                </div>
-                <svg class="saved-item__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
-              </button>
-            </li>
-          </ul>
-          <p class="empty-hint">Supabase 연동 후 즐겨찾기가 계정에 저장됩니다.</p>
+          <ul class="saved-list" id="saved-favorites-list"></ul>
+          <p class="empty-hint" id="saved-favorites-empty">고정한 자주 가는 경로가 없습니다.</p>
         </div>
 
         <div class="saved-panel" id="panel-recent">
-          <ul class="saved-list">
-            <li>
-              <button class="saved-item" type="button" data-nav="search">
-                <span class="saved-item__icon">🕐</span>
-                <div class="saved-item__body">
-                  <strong>부산역</strong>
-                  <p>오늘 17:05 · 해운대구 우동에서 검색</p>
-                </div>
-                <svg class="saved-item__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
-              </button>
-            </li>
-            <li>
-              <button class="saved-item" type="button" data-nav="search">
-                <span class="saved-item__icon">🕐</span>
-                <div class="saved-item__body">
-                  <strong>서면역</strong>
-                  <p>오늘 14:32 · 해운대구 우동에서 검색</p>
-                </div>
-                <svg class="saved-item__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
-              </button>
-            </li>
-            <li>
-              <button class="saved-item" type="button" data-nav="search">
-                <span class="saved-item__icon">🕐</span>
-                <div class="saved-item__body">
-                  <strong>국제시장</strong>
-                  <p>어제 19:18 · 센텀시티에서 검색</p>
-                </div>
-                <svg class="saved-item__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
-              </button>
-            </li>
-            <li>
-              <button class="saved-item" type="button" data-nav="search">
-                <span class="saved-item__icon">🕐</span>
-                <div class="saved-item__body">
-                  <strong>광안리해수욕장</strong>
-                  <p>어제 11:45 · 우동에서 검색</p>
-                </div>
-                <svg class="saved-item__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
-              </button>
-            </li>
-          </ul>
-          <button class="text-btn text-btn--center" type="button">최근 검색 전체 삭제</button>
+          <ul class="saved-list" id="saved-recent-list"></ul>
+          <p class="empty-hint" id="saved-recent-empty" hidden>최근 검색 기록이 없습니다.</p>
+          <button class="text-btn text-btn--center" type="button" id="saved-clear-recent" hidden>최근 검색 전체 삭제</button>
         </div>
       </div>
     </section>

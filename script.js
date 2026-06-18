@@ -29,7 +29,24 @@
   let lastKakaoCspViolation = null;
   const PLACES_MAX_RADIUS = 20000;
   const API_BASE = "";
-  const HOME_DESTINATION = localStorage.getItem("transiton-home") || "부산역";
+  const DEFAULT_ROUTE_LABEL = "목적지";
+
+  function loadJsonStorage(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  function saveJsonStorage(key, value) {
+    localStorage.setItem(key, JSON.stringify(value));
+  }
+
+  function makeId() {
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
 
   let apiAvailable = null;
   let transitRealtimeData = null;
@@ -397,11 +414,14 @@
 
   const state = {
     currentView: "home",
-    destination: HOME_DESTINATION,
+    destination: DEFAULT_ROUTE_LABEL,
     favoriteAdded: false,
     nearbyStops: { bus: [], subway: [] },
     routeInfo: null,
-    recentSearches: JSON.parse(localStorage.getItem("transiton-recent") || "[]"),
+    recentSearches: loadJsonStorage("transiton-recent", []),
+    savedPlaces: loadJsonStorage("transiton-saved-places", []),
+    frequentRoutes: loadJsonStorage("transiton-frequent-routes", []),
+    goldenDestination: loadJsonStorage("transiton-golden-dest", null),
   };
 
   const views = {};
@@ -442,7 +462,12 @@
       }
     }
     if (viewName === "realtime") loadRealtimeData();
-    if (viewName === "golden") loadGoldenAnalysis();
+    if (viewName === "search") renderSearchPanels();
+    if (viewName === "golden") {
+      renderGoldenSavedPlaces();
+      loadGoldenAnalysis();
+    }
+    if (viewName === "saved") renderSavedView();
     updateRouteSummary();
   }
 
@@ -471,7 +496,7 @@
     const to =
       onRoutes && locationState.destination?.name
         ? locationState.destination.name
-        : HOME_DESTINATION;
+        : DEFAULT_ROUTE_LABEL;
     if (routeSummaryLabel) routeSummaryLabel.textContent = `${from} → ${to}`;
     if (routeMapLabel) {
       routeMapLabel.textContent =
@@ -490,6 +515,389 @@
   function shortLabel(text) {
     if (!text) return MAP_CENTER.label;
     return text.length > 22 ? `${text.slice(0, 22)}…` : text;
+  }
+
+  function persistSavedPlaces() {
+    saveJsonStorage("transiton-saved-places", state.savedPlaces);
+  }
+
+  function persistFrequentRoutes() {
+    saveJsonStorage("transiton-frequent-routes", state.frequentRoutes);
+  }
+
+  function persistGoldenDestination() {
+    saveJsonStorage("transiton-golden-dest", state.goldenDestination);
+  }
+
+  function isLikelyBusStop(place) {
+    const name = place.name || "";
+    if (name.includes("정류") || name.includes("버스")) return true;
+    if (/역$/.test(name) && !name.includes("정류")) return false;
+    return true;
+  }
+
+  function mergeNearbyBusResults(lists) {
+    const merged = [];
+    const seen = new Set();
+    for (const list of lists) {
+      for (const item of list) {
+        if (!isLikelyBusStop(item)) continue;
+        const key = `${item.name}|${item.lat.toFixed(4)}|${item.lng.toFixed(4)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push({ ...item, type: "bus" });
+      }
+    }
+    return merged.sort((a, b) => a.distance - b.distance);
+  }
+
+  function saveRecentSearch(name) {
+    state.recentSearches = [name, ...state.recentSearches.filter((s) => s !== name)].slice(0, 12);
+    saveJsonStorage("transiton-recent", state.recentSearches);
+    renderSearchPanels();
+    renderSavedView();
+  }
+
+  function clearRecentSearches() {
+    state.recentSearches = [];
+    saveJsonStorage("transiton-recent", []);
+    renderSearchPanels();
+    renderSavedView();
+    showToast("검색 기록을 삭제했습니다");
+  }
+
+  function isRoutePinned(destQuery) {
+    return state.frequentRoutes.some((r) => r.destQuery === destQuery && r.pinned);
+  }
+
+  function togglePinRoute(destQuery, destName) {
+    const existing = state.frequentRoutes.find((r) => r.destQuery === destQuery);
+    if (existing?.pinned) {
+      state.frequentRoutes = state.frequentRoutes.filter((r) => r.id !== existing.id);
+      persistFrequentRoutes();
+      renderSearchPanels();
+      renderSavedView();
+      showToast("고정을 해제했습니다");
+      return;
+    }
+    state.frequentRoutes.unshift({
+      id: makeId(),
+      label: destName,
+      originLabel: shortLabel(locationState.current.label),
+      destName,
+      destQuery,
+      pinned: true,
+      createdAt: Date.now(),
+    });
+    persistFrequentRoutes();
+    renderSearchPanels();
+    renderSavedView();
+    showToast("자주 가는 경로에 고정했습니다");
+  }
+
+  function pinCurrentRoute() {
+    if (!locationState.destination) {
+      showToast("먼저 경로를 검색해 주세요");
+      return;
+    }
+    const destQuery = locationState.destination.name;
+    if (isRoutePinned(destQuery)) {
+      togglePinRoute(destQuery, destQuery);
+      state.favoriteAdded = false;
+      return;
+    }
+    state.frequentRoutes.unshift({
+      id: makeId(),
+      label: `${shortLabel(locationState.current.label)} → ${destQuery}`,
+      originLabel: shortLabel(locationState.current.label),
+      destName: destQuery,
+      destQuery,
+      pinned: true,
+      createdAt: Date.now(),
+    });
+    persistFrequentRoutes();
+    state.favoriteAdded = true;
+    renderSearchPanels();
+    renderSavedView();
+    showToast("자주 가는 경로에 고정했습니다");
+  }
+
+  async function applySavedRoute(route) {
+    if (destinationInput) destinationInput.value = route.destQuery;
+    const ok = await setDestination(route.destQuery, { navigate: true });
+    if (ok) showView("routes");
+  }
+
+  async function applyRecentSearch(name) {
+    if (destinationInput) destinationInput.value = name;
+    await setDestination(name, { navigate: true });
+  }
+
+  function renderSearchHistoryList(container, emptyEl, clearBtn) {
+    if (!container) return;
+    if (!state.recentSearches.length) {
+      container.innerHTML = "";
+      if (emptyEl) emptyEl.hidden = false;
+      if (clearBtn) clearBtn.hidden = true;
+      return;
+    }
+    if (emptyEl) emptyEl.hidden = true;
+    if (clearBtn) clearBtn.hidden = false;
+    container.innerHTML = state.recentSearches
+      .map(
+        (name) => `
+      <li>
+        <div class="suggestion-item">
+          <button type="button" class="suggestion-item__main" data-recent="${encodeURIComponent(name)}" style="flex:1;display:flex;align-items:center;gap:12px;border:none;background:transparent;text-align:left;padding:0;cursor:pointer">
+            <span class="suggestion-item__icon">🕐</span>
+            <span><strong>${name}</strong><small>탭하여 경로 검색</small></span>
+          </button>
+          <div class="suggestion-item__actions">
+            <button type="button" class="pin-btn ${isRoutePinned(name) ? "pin-btn--active" : ""}" data-pin="${encodeURIComponent(name)}" aria-label="자주 가는 경로 고정">📌</button>
+          </div>
+        </div>
+      </li>`
+      )
+      .join("");
+
+    container.querySelectorAll("[data-recent]").forEach((btn) => {
+      btn.addEventListener("click", () => applyRecentSearch(decodeURIComponent(btn.dataset.recent)));
+    });
+    container.querySelectorAll("[data-pin]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const name = decodeURIComponent(btn.dataset.pin);
+        togglePinRoute(name, name);
+      });
+    });
+  }
+
+  function renderFrequentRoutesList(container, emptyEl) {
+    if (!container) return;
+    const pinned = state.frequentRoutes.filter((r) => r.pinned);
+    if (!pinned.length) {
+      container.innerHTML = "";
+      if (emptyEl) emptyEl.hidden = false;
+      return;
+    }
+    if (emptyEl) emptyEl.hidden = true;
+    container.innerHTML = pinned
+      .map(
+        (route) => `
+      <li>
+        <div class="suggestion-item">
+          <button type="button" class="suggestion-item__main" data-route-id="${route.id}" style="flex:1;display:flex;align-items:center;gap:12px;border:none;background:transparent;text-align:left;padding:0;cursor:pointer">
+            <span class="suggestion-item__icon">⭐</span>
+            <span><strong>${route.label || route.destName}</strong><small>${route.originLabel} → ${route.destName}</small></span>
+          </button>
+          <div class="suggestion-item__actions">
+            <button type="button" class="pin-btn pin-btn--active" data-unpin-id="${route.id}" aria-label="고정 해제">📌</button>
+          </div>
+        </div>
+      </li>`
+      )
+      .join("");
+
+    container.querySelectorAll("[data-route-id]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const route = state.frequentRoutes.find((r) => r.id === btn.dataset.routeId);
+        if (route) applySavedRoute(route);
+      });
+    });
+    container.querySelectorAll("[data-unpin-id]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const route = state.frequentRoutes.find((r) => r.id === btn.dataset.unpinId);
+        if (route) togglePinRoute(route.destQuery, route.destName);
+      });
+    });
+  }
+
+  function renderSearchPanels() {
+    renderSearchHistoryList(
+      document.getElementById("search-history-list"),
+      document.getElementById("search-history-empty"),
+      document.getElementById("clear-search-history")
+    );
+    renderFrequentRoutesList(
+      document.getElementById("frequent-routes-list"),
+      document.getElementById("frequent-routes-empty")
+    );
+  }
+
+  function renderSavedView() {
+    const favList = document.getElementById("saved-favorites-list");
+    const favEmpty = document.getElementById("saved-favorites-empty");
+    const recentList = document.getElementById("saved-recent-list");
+    const recentEmpty = document.getElementById("saved-recent-empty");
+    const clearRecent = document.getElementById("saved-clear-recent");
+
+    renderFrequentRoutesList(favList, favEmpty);
+
+    if (!state.recentSearches.length) {
+      if (recentList) recentList.innerHTML = "";
+      if (recentEmpty) recentEmpty.hidden = false;
+      if (clearRecent) clearRecent.hidden = true;
+    } else {
+      if (recentEmpty) recentEmpty.hidden = true;
+      if (clearRecent) clearRecent.hidden = false;
+      if (recentList) {
+        recentList.innerHTML = state.recentSearches
+          .map(
+            (name) => `
+          <li>
+            <button class="saved-item" type="button" data-recent-saved="${encodeURIComponent(name)}">
+              <span class="saved-item__icon">🕐</span>
+              <div class="saved-item__body">
+                <strong>${name}</strong>
+                <p>탭하여 다시 검색</p>
+              </div>
+              <svg class="saved-item__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            </button>
+          </li>`
+          )
+          .join("");
+        recentList.querySelectorAll("[data-recent-saved]").forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            await applyRecentSearch(decodeURIComponent(btn.dataset.recentSaved));
+            showView("search");
+          });
+        });
+      }
+    }
+  }
+
+  function renderGoldenSavedPlaces() {
+    const list = document.getElementById("golden-saved-places");
+    if (!list) return;
+    if (!state.savedPlaces.length) {
+      list.innerHTML = `<li><span class="empty-hint" style="padding:0">등록된 목적지가 없습니다.</span></li>`;
+      return;
+    }
+    list.innerHTML = state.savedPlaces
+      .map(
+        (place) => `
+      <li class="place-chips__item">
+        <button type="button" class="place-chip ${state.goldenDestination?.id === place.id ? "place-chip--active" : ""}" data-golden-place="${place.id}">
+          ${place.label}
+        </button>
+        <button type="button" class="place-chip__delete" data-delete-place="${place.id}" aria-label="삭제">×</button>
+      </li>`
+      )
+      .join("");
+
+    list.querySelectorAll("[data-golden-place]").forEach((btn) => {
+      btn.addEventListener("click", () => selectGoldenPlace(btn.dataset.goldenPlace));
+    });
+    list.querySelectorAll("[data-delete-place]").forEach((btn) => {
+      btn.addEventListener("click", () => deleteSavedPlace(btn.dataset.deletePlace));
+    });
+  }
+
+  function selectGoldenPlace(placeId) {
+    const place = state.savedPlaces.find((p) => p.id === placeId);
+    if (!place) return;
+    state.goldenDestination = { ...place };
+    persistGoldenDestination();
+    const input = document.getElementById("golden-dest-input");
+    if (input) input.value = place.query || place.name || place.label;
+    renderGoldenSavedPlaces();
+    loadGoldenAnalysis();
+  }
+
+  async function deleteSavedPlace(placeId) {
+    state.savedPlaces = state.savedPlaces.filter((p) => p.id !== placeId);
+    if (state.goldenDestination?.id === placeId) {
+      state.goldenDestination = null;
+      persistGoldenDestination();
+    }
+    persistSavedPlaces();
+    renderGoldenSavedPlaces();
+    loadGoldenAnalysis();
+    showToast("목적지를 삭제했습니다");
+  }
+
+  async function addSavedPlace(label, query) {
+    const trimmedLabel = label.trim();
+    const trimmedQuery = query.trim();
+    if (!trimmedLabel || !trimmedQuery) {
+      showToast("이름과 장소를 모두 입력해 주세요");
+      return;
+    }
+    try {
+      await whenKakaoReady();
+      const geo = await geocodeDestination(trimmedQuery);
+      const place = {
+        id: makeId(),
+        label: trimmedLabel,
+        query: trimmedQuery,
+        name: geo.name,
+        lat: geo.lat,
+        lng: geo.lng,
+      };
+      state.savedPlaces = [place, ...state.savedPlaces.filter((p) => p.label !== trimmedLabel)].slice(0, 12);
+      persistSavedPlaces();
+      state.goldenDestination = { ...place };
+      persistGoldenDestination();
+      renderGoldenSavedPlaces();
+      const labelInput = document.getElementById("golden-place-label");
+      const queryInput = document.getElementById("golden-place-query");
+      if (labelInput) labelInput.value = "";
+      if (queryInput) queryInput.value = "";
+      const destInput = document.getElementById("golden-dest-input");
+      if (destInput) destInput.value = trimmedQuery;
+      await loadGoldenAnalysis();
+      showToast(`'${trimmedLabel}' 목적지를 등록했습니다`);
+    } catch (err) {
+      showToast(`장소를 찾을 수 없습니다: ${trimmedQuery}`);
+    }
+  }
+
+  async function searchGoldenDestination() {
+    const input = document.getElementById("golden-dest-input");
+    const query = input?.value.trim();
+    if (!query) {
+      showToast("막차 분석할 목적지를 입력해 주세요");
+      return;
+    }
+    try {
+      await whenKakaoReady();
+      const geo = await geocodeDestination(query);
+      state.goldenDestination = {
+        id: makeId(),
+        label: query,
+        query,
+        name: geo.name,
+        lat: geo.lat,
+        lng: geo.lng,
+      };
+      persistGoldenDestination();
+      renderGoldenSavedPlaces();
+      await loadGoldenAnalysis();
+    } catch {
+      showToast(`'${query}' 목적지를 찾을 수 없습니다`);
+    }
+  }
+
+  function goldenDestLabel() {
+    if (!state.goldenDestination) return "목적지 미선택";
+    return state.goldenDestination.label || state.goldenDestination.name || state.goldenDestination.query;
+  }
+
+  function formatRouteApiBanner(info) {
+    if (!info?.legs?.length) {
+      return "백엔드 미연결 — python3 smarttransit.py 실행 후 대중교통 상세 경로를 확인하세요.";
+    }
+    if (!info.usingFallback) {
+      return "BIMS·Humetro 실시간 ETA + 환승 추정 경로입니다.";
+    }
+    const diag = info.apiDiagnostics || {};
+    const hints = ["bus", "subway"]
+      .map((key) => describeRealtimeFailure(key, diag[key]))
+      .filter(Boolean);
+    return hints.length
+      ? `실시간 API 일부 미연결 — ${hints.join(" · ")}`
+      : "실시간 API 일부 미연결 — 추정 도착 정보가 포함됩니다.";
   }
 
   /* ---- Utilities ---- */
@@ -907,6 +1315,8 @@
     const tick = () => {
       const el = document.getElementById("golden-time");
       if (el) el.textContent = formatNowTime(true);
+      const analysisNow = document.getElementById("golden-analysis-now");
+      if (analysisNow) analysisNow.textContent = formatNowTime(true);
     };
     tick();
     goldenClockTimer = setInterval(tick, 1000);
@@ -929,13 +1339,13 @@
       goldenDepartEm.textContent = analysis.recommended_departure || analysis.departure_time || "--:--";
     }
     if (goldenDest) {
-      goldenDest.textContent = data.destination || HOME_DESTINATION;
+      goldenDest.textContent = goldenDestLabel();
     }
     if (schedule) {
       schedule.innerHTML = `
         <article class="golden-card">
           <p class="golden-card__label">현재 시각</p>
-          <p class="golden-card__value">${analysis.current_time || formatNowTime(true)}</p>
+          <p class="golden-card__value" id="golden-analysis-now">${formatNowTime(true)}</p>
         </article>
         <article class="golden-card">
           <p class="golden-card__label">추천 탑승</p>
@@ -961,7 +1371,7 @@
     }
     if (gRoutePath) {
       const from = shortLabel(locationState.current.label);
-      gRoutePath.textContent = `${from} → ${data.destination || HOME_DESTINATION}`;
+      gRoutePath.textContent = `${from} → ${goldenDestLabel()}`;
     }
   }
 
@@ -969,6 +1379,24 @@
     startGoldenClock();
 
     const schedule = document.getElementById("golden-schedule");
+    const goldenDest = document.getElementById("golden-destination");
+    const goldenDepartEm = document.getElementById("golden-depart-em");
+
+    if (!state.goldenDestination) {
+      if (goldenDest) goldenDest.textContent = "목적지 미선택";
+      if (goldenDepartEm) goldenDepartEm.textContent = "--:--";
+      if (schedule) {
+        schedule.innerHTML = `<div class="info-banner info-banner--subtle"><p>목적지를 검색하거나 자주 가는 목적지를 선택해 주세요.</p></div>`;
+      }
+      const gRouteTime = document.getElementById("golden-route-time");
+      const gRouteMode = document.getElementById("golden-route-mode");
+      const gRoutePath = document.getElementById("golden-route-path");
+      if (gRouteTime) gRouteTime.textContent = "—";
+      if (gRouteMode) gRouteMode.textContent = "목적지 선택 필요";
+      if (gRoutePath) gRoutePath.textContent = "목적지를 입력해 주세요";
+      return;
+    }
+
     if (schedule) schedule.innerHTML = `<p class="loading-text">막차·귀가 분석 중…</p>`;
 
     try {
@@ -980,11 +1408,13 @@
         return;
       }
 
-      const dest = HOME_DESTINATION;
+      const dest = state.goldenDestination;
       const params = new URLSearchParams({
-        destination: dest,
+        destination: dest.name || dest.query || dest.label,
         origin_lat: String(locationState.current.lat),
         origin_lng: String(locationState.current.lng),
+        dest_lat: String(dest.lat),
+        dest_lng: String(dest.lng),
       });
 
       const data = await apiFetch(`/api/analysis?${params}`);
@@ -1133,13 +1563,27 @@
   async function loadNearbyStops() {
     try {
       await whenKakaoReady();
-      const [subway, busKeyword] = await Promise.all([
-        searchNearbyCategory("SW8", 2000),
-        searchNearbyKeyword("버스정류장", 1500),
+      const [subway, busA, busB, busC] = await Promise.all([
+        searchNearbyCategory("SW8", 2500),
+        searchNearbyKeyword("버스정류장", 2500),
+        searchNearbyKeyword("버스정류소", 2500),
+        searchNearbyKeyword("정류장", 2000),
       ]);
 
       state.nearbyStops.subway = subway.slice(0, 3);
-      state.nearbyStops.bus = busKeyword.slice(0, 3);
+      state.nearbyStops.bus = mergeNearbyBusResults([busA, busB, busC]).slice(0, 3);
+      if (!state.nearbyStops.bus.length) {
+        state.nearbyStops.bus = [
+          {
+            name: "경성대·부경대역 버스정류장",
+            address: MAP_CENTER.label,
+            lat: 35.134,
+            lng: 129.096,
+            distance: haversineM(locationState.current, { lat: 35.134, lng: 129.096 }),
+            type: "bus",
+          },
+        ];
+      }
       renderNearbyList();
       updateMapRoute();
     } catch (err) {
@@ -1415,14 +1859,7 @@
 
     const banner = document.getElementById("route-info-banner");
     if (banner) {
-      if (info.legs?.length) {
-        banner.textContent = info.usingFallback
-          ? "BIMS/Humetro API 일부 실패 — fallback ETA 포함. F12 → api_diagnostics 확인."
-          : "BIMS·Humetro 실시간 ETA + 환승 추정 경로입니다.";
-      } else {
-        banner.textContent =
-          "백엔드 미연결 — python3 smarttransit.py 실행 후 대중교통 상세 경로를 확인하세요.";
-      }
+      banner.textContent = formatRouteApiBanner(info);
     }
   }
 
@@ -1581,11 +2018,6 @@
     throw err;
   }
 
-  function saveRecentSearch(name) {
-    state.recentSearches = [name, ...state.recentSearches.filter((s) => s !== name)].slice(0, 8);
-    localStorage.setItem("transiton-recent", JSON.stringify(state.recentSearches));
-  }
-
   function showAutocompleteResults(items) {
     if (!placeAutocomplete || !items.length) {
       hideAutocomplete();
@@ -1615,8 +2047,10 @@
         hideAutocomplete();
         saveRecentSearch(item.name);
         updateRouteSummary();
-        updateMapRoute();
-        await computeRoute();
+        if (state.currentView === "routes") {
+          updateMapRoute();
+          await computeRoute();
+        }
         showToast(`${item.name}(으)로 설정했습니다`);
       });
     });
@@ -1693,18 +2127,38 @@
     return true;
   }
 
-  document.querySelectorAll(".suggestion-item").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      if (destinationInput) destinationInput.value = btn.dataset.dest;
-      await setDestination(btn.dataset.dest);
+  document.querySelectorAll("[data-search-tab]").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const key = tab.dataset.searchTab;
+      document.querySelectorAll("[data-search-tab]").forEach((t) => t.classList.toggle("tab--active", t === tab));
+      document.getElementById("search-panel-history")?.classList.toggle("search-panel--active", key === "history");
+      document.getElementById("search-panel-frequent")?.classList.toggle("search-panel--active", key === "frequent");
     });
+  });
+
+  document.getElementById("clear-search-history")?.addEventListener("click", clearRecentSearches);
+  document.getElementById("saved-clear-recent")?.addEventListener("click", clearRecentSearches);
+
+  document.getElementById("golden-dest-search")?.addEventListener("click", searchGoldenDestination);
+  document.getElementById("golden-place-add")?.addEventListener("click", () => {
+    addSavedPlace(
+      document.getElementById("golden-place-label")?.value || "",
+      document.getElementById("golden-place-query")?.value || ""
+    );
+  });
+  document.getElementById("golden-dest-input")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      searchGoldenDestination();
+    }
   });
 
   document.getElementById("clear-search")?.addEventListener("click", () => {
     if (destinationInput) destinationInput.value = "";
     locationState.destination = null;
     state.routeInfo = null;
-    state.destination = HOME_DESTINATION;
+    state.destination = DEFAULT_ROUTE_LABEL;
+    state.favoriteAdded = false;
     updateRouteSummary();
     updateMapRoute();
     destinationInput?.focus();
@@ -1768,8 +2222,7 @@
   });
 
   document.getElementById("add-favorite")?.addEventListener("click", () => {
-    state.favoriteAdded = !state.favoriteAdded;
-    showToast(state.favoriteAdded ? "즐겨찾기 (Supabase 연동 예정)" : "즐겨찾기 해제");
+    pinCurrentRoute();
   });
 
   /* ---- Kakao Map ---- */
@@ -2198,6 +2651,8 @@
 
   updateOriginField();
   updateRouteSummary();
+  renderSearchPanels();
+  renderGoldenSavedPlaces();
   checkApiHealth();
   initKakaoMap();
   showView("home");
