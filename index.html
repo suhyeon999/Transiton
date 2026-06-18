@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="TransitON — 부산 버스·지하철 통합 스마트 교통 안내">
+  <title>TransitON | 스마트 교통 안내</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app" id="app">
+
+    <!-- ===== 1. 메인 화면 ===== -->
+    <section class="view view--active" id="view-home" data-view="home">
+      <header class="header header--hero">
+        <div class="header__top">
+          <div class="brand">
+            <span class="brand__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 16V8l4-2 4 2v8l-4 2-4-2z"/>
+                <path d="M12 6l4-2v8l-4 2"/>
+                <circle cx="7" cy="16" r="1.5" fill="currentColor"/>
+                <circle cx="17" cy="14" r="1.5" fill="currentColor"/>
+              </svg>
+            </span>
+            <div>
+              <h1 class="brand__name">TransitON</h1>
+              <p class="brand__tagline">부산 스마트 교통 안내</p>
+            </div>
+          </div>
+          <button class="icon-btn" type="button" aria-label="알림" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          </button>
+        </div>
+
+        <button class="search-bar" type="button" data-nav="search">
+          <svg class="search-bar__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <span>어디로 갈까요? 목적지를 검색하세요</span>
+        </button>
+      </header>
+
+      <div class="map-preview" id="map-container">
+        <div id="map" class="map-preview__canvas" role="region" aria-label="현재 위치 지도"></div>
+        <div class="map-preview__label">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-4.5-7-10a7 7 0 1 1 14 0c0 5.5-7 10-7 10z"/><circle cx="12" cy="11" r="2.5"/></svg>
+          <span id="map-location-label">현재 위치 · 부산 남구 대연동</span>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="quick-actions">
+          <button class="quick-action" type="button" data-nav="search">
+            <span class="quick-action__icon quick-action__icon--blue">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            </span>
+            <span class="quick-action__label">경로 검색</span>
+          </button>
+          <button class="quick-action" type="button" data-nav="realtime">
+            <span class="quick-action__icon quick-action__icon--green">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            </span>
+            <span class="quick-action__label">실시간 정보</span>
+          </button>
+          <button class="quick-action" type="button" data-nav="golden">
+            <span class="quick-action__icon quick-action__icon--purple">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><circle cx="12" cy="12" r="4"/></svg>
+            </span>
+            <span class="quick-action__label">막차 안내</span>
+          </button>
+          <button class="quick-action" type="button" data-nav="saved">
+            <span class="quick-action__icon quick-action__icon--orange">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+            </span>
+            <span class="quick-action__label">즐겨찾기</span>
+          </button>
+        </div>
+
+        <section class="section">
+          <div class="section__head">
+            <h2>주변 정류장 · 지하철역</h2>
+            <button class="text-btn" type="button" data-nav="realtime">전체보기</button>
+          </div>
+          <div class="nearby-list" id="nearby-list">
+            <p class="loading-text">주변 정류장·역 검색 중…</p>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section__head">
+            <h2>추천 경로</h2>
+          </div>
+          <button class="route-preview" type="button" data-nav="routes" id="home-route-preview">
+            <div class="route-preview__meta">
+              <span class="route-preview__time" id="home-route-time">목적지 검색</span>
+              <span class="route-preview__fare" id="home-route-mode">카카오맵</span>
+            </div>
+            <p class="route-preview__path" id="home-route-path">출발지 → 목적지 경로</p>
+            <span class="route-preview__cta">최적 경로 보기 →</span>
+          </button>
+        </section>
+      </div>
+    </section>
+
+    <!-- ===== 2. 위치 입력 및 검색 화면 ===== -->
+    <section class="view" id="view-search" data-view="search">
+      <header class="header header--compact">
+        <button class="icon-btn icon-btn--back" type="button" data-nav="home" aria-label="뒤로">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <h2 class="header__title">경로 검색</h2>
+        <button class="icon-btn" type="button" aria-label="검색 초기화" id="clear-search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </header>
+
+      <div class="search-panel">
+        <div class="route-inputs">
+          <div class="route-inputs__dots" aria-hidden="true">
+            <span class="dot dot--start"></span>
+            <span class="line"></span>
+            <span class="dot dot--end"></span>
+          </div>
+          <div class="route-inputs__fields">
+            <div class="input-row">
+              <label class="sr-only" for="origin">출발지</label>
+              <input type="text" id="origin" class="route-input" value="위치 확인 중…" placeholder="출발지 입력" readonly>
+              <button class="chip-btn" type="button" id="btn-locate">현위치</button>
+            </div>
+            <div class="input-row input-row--destination">
+              <label class="sr-only" for="destination">도착지</label>
+              <input type="text" id="destination" class="route-input route-input--focus" placeholder="도착지를 입력하세요" autocomplete="off">
+            </div>
+            <ul class="place-autocomplete" id="place-autocomplete" role="listbox" hidden></ul>
+          </div>
+        </div>
+
+        <div class="search-suggestions" id="search-suggestions">
+          <p class="search-suggestions__label">인기 목적지</p>
+          <ul class="suggestion-list" role="listbox">
+            <li><button type="button" class="suggestion-item" data-dest="부산역"><span class="suggestion-item__icon">🚉</span><span><strong>부산역</strong><small>동구 중앙대로</small></span></button></li>
+            <li><button type="button" class="suggestion-item" data-dest="서면역"><span class="suggestion-item__icon">🚇</span><span><strong>서면역</strong><small>부산진구 중앙대로</small></span></button></li>
+            <li><button type="button" class="suggestion-item" data-dest="광안리해수욕장"><span class="suggestion-item__icon">🏖️</span><span><strong>광안리해수욕장</strong><small>수영구 광안해변로</small></span></button></li>
+            <li><button type="button" class="suggestion-item" data-dest="센텀시티"><span class="suggestion-item__icon">🏬</span><span><strong>센텀시티</strong><small>해운대구 센텀중앙로</small></span></button></li>
+            <li><button type="button" class="suggestion-item" data-dest="국제시장"><span class="suggestion-item__icon">🛍️</span><span><strong>국제시장</strong><small>중구 광복로</small></span></button></li>
+          </ul>
+        </div>
+
+        <button class="btn btn--primary btn--full" type="button" id="search-submit">
+          경로 찾기
+        </button>
+      </div>
+    </section>
+
+    <!-- ===== 3. 실시간 교통 정보 화면 ===== -->
+    <section class="view" id="view-realtime" data-view="realtime">
+      <header class="header header--compact">
+        <button class="icon-btn icon-btn--back" type="button" data-nav="home" aria-label="뒤로">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <h2 class="header__title">실시간 교통 정보</h2>
+        <button class="icon-btn" type="button" aria-label="새로고침" id="refresh-realtime">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.2-5.9"/><path d="M21 3v6h-6"/></svg>
+        </button>
+      </header>
+
+      <div class="tabs" role="tablist">
+        <button class="tab tab--active" type="button" role="tab" aria-selected="true" data-tab="bus">버스</button>
+        <button class="tab" type="button" role="tab" aria-selected="false" data-tab="subway">지하철</button>
+      </div>
+
+      <div class="content">
+        <p class="api-status" id="api-status">실시간 도착 — 공공데이터 API 연동 예정</p>
+        <div class="tab-panel tab-panel--active" id="panel-bus">
+          <div id="bus-list"><p class="loading-text">버스 도착 정보</p></div>
+        </div>
+
+        <div class="tab-panel" id="panel-subway">
+          <div id="subway-list"><p class="loading-text">지하철 도착 정보</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 4. 경로 추천 결과 화면 ===== -->
+    <section class="view" id="view-routes" data-view="routes">
+      <header class="header header--compact">
+        <button class="icon-btn icon-btn--back" type="button" data-nav="search" aria-label="뒤로">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <div class="header__route-summary">
+          <p class="header__route-label" id="route-summary-label">부산 남구 대연동 → 부산역</p>
+        </div>
+        <button class="icon-btn" type="button" aria-label="즐겨찾기 추가" id="add-favorite">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+        </button>
+      </header>
+
+      <div class="map-preview map-preview--route" id="route-map-container">
+        <div id="route-map" class="map-preview__canvas" role="region" aria-label="경로 지도"></div>
+        <div class="map-preview__label map-preview__label--route">
+          <span id="route-map-label">출발지 → 목적지</span>
+        </div>
+      </div>
+
+      <div class="route-options">
+        <button class="route-option route-option--active" type="button" data-route="best">
+          <span class="route-option__badge">추천</span>
+          <span class="route-option__time">28분</span>
+          <span class="route-option__detail">환승 1회 · 1,700원</span>
+        </button>
+        <button class="route-option" type="button" data-route="fast">
+          <span class="route-option__time">24분</span>
+          <span class="route-option__detail">환승 2회 · 1,900원</span>
+        </button>
+        <button class="route-option" type="button" data-route="cheap">
+          <span class="route-option__time">35분</span>
+          <span class="route-option__detail">환승 0회 · 1,500원</span>
+        </button>
+      </div>
+
+      <div class="content">
+        <div class="route-detail-card">
+          <div class="route-detail-card__summary">
+            <div class="summary-stat">
+              <span class="summary-stat__value">28분</span>
+              <span class="summary-stat__label">소요</span>
+            </div>
+            <div class="summary-stat">
+              <span class="summary-stat__value">1,700원</span>
+              <span class="summary-stat__label">요금</span>
+            </div>
+            <div class="summary-stat">
+              <span class="summary-stat__value">17:42</span>
+              <span class="summary-stat__label">도착 예정</span>
+            </div>
+          </div>
+
+          <ol class="timeline">
+            <li class="timeline__item">
+              <div class="timeline__dot timeline__dot--walk"></div>
+              <div class="timeline__content">
+                <strong>도보 4분</strong>
+                <p>해운대구 우동 → 해운대역</p>
+              </div>
+            </li>
+            <li class="timeline__item">
+              <div class="timeline__dot timeline__dot--subway line-2"></div>
+              <div class="timeline__content">
+                <strong>2호선 · 12분</strong>
+                <p>해운대역 → 서면역 (양산 방면)</p>
+                <span class="timeline__chip">3분 후 열차</span>
+              </div>
+            </li>
+            <li class="timeline__item">
+              <div class="timeline__dot timeline__dot--transfer"></div>
+              <div class="timeline__content">
+                <strong>환승 · 서면역</strong>
+                <p>2호선 → 1호선</p>
+              </div>
+            </li>
+            <li class="timeline__item">
+              <div class="timeline__dot timeline__dot--subway line-1"></div>
+              <div class="timeline__content">
+                <strong>1호선 · 8분</strong>
+                <p>서면역 → 부산역 (다대포해수욕장 방면)</p>
+                <span class="timeline__chip">5분 후 열차</span>
+              </div>
+            </li>
+            <li class="timeline__item">
+              <div class="timeline__dot timeline__dot--walk"></div>
+              <div class="timeline__content">
+                <strong>도보 2분</strong>
+                <p>부산역 → 목적지</p>
+              </div>
+            </li>
+          </ol>
+        </div>
+
+        <div class="info-banner">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+          <p id="route-info-banner">카카오맵 경로·거리 기반 추정입니다.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 5. 막차 골든타임 안내 화면 ===== -->
+    <section class="view" id="view-golden" data-view="golden">
+      <header class="header header--compact">
+        <button class="icon-btn icon-btn--back" type="button" data-nav="home" aria-label="뒤로">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <h2 class="header__title">막차 골든타임</h2>
+        <span class="header__badge">귀가 가이드</span>
+      </header>
+
+      <div class="content">
+        <div class="golden-hero">
+          <div class="golden-hero__clock">
+            <span class="golden-hero__time" id="golden-time">23:14</span>
+            <span class="golden-hero__label">지금 출발 권장</span>
+          </div>
+          <p class="golden-hero__desc" id="golden-desc">
+            <strong id="golden-destination">집</strong>까지 막차를 타려면<br>
+            <em id="golden-depart-em">--:--</em>까지 출발하세요
+          </p>
+        </div>
+
+        <section class="section">
+          <h2 class="section__title">추천 탑승 · 분석</h2>
+          <div class="golden-schedule" id="golden-schedule">
+            <p class="loading-text">막차 정보 — Humetro API 연동 예정</p>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2 class="section__title">귀가 경로</h2>
+          <button class="route-preview route-preview--dark" type="button" data-nav="routes">
+            <div class="route-preview__meta">
+              <span class="route-preview__time" id="golden-route-time">분석 중…</span>
+              <span class="route-preview__fare" id="golden-route-mode">추천 수단</span>
+            </div>
+            <p class="route-preview__path" id="golden-route-path">목적지 검색 후 경로 확인</p>
+          </button>
+        </section>
+
+        <div class="alert alert--warning">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+          <p>주말·공휴일 막차 시간은 평일과 다를 수 있습니다.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 6. 즐겨찾기 및 최근 검색 기록 ===== -->
+    <section class="view" id="view-saved" data-view="saved">
+      <header class="header header--compact">
+        <button class="icon-btn icon-btn--back" type="button" data-nav="home" aria-label="뒤로">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <h2 class="header__title">저장 · 기록</h2>
+      </header>
+
+      <div class="tabs" role="tablist">
+        <button class="tab tab--active" type="button" role="tab" data-saved-tab="favorites">즐겨찾기</button>
+        <button class="tab" type="button" role="tab" data-saved-tab="recent">최근 검색</button>
+      </div>
+
+      <div class="content">
+        <div class="saved-panel saved-panel--active" id="panel-favorites">
+          <ul class="saved-list">
+            <li>
+              <button class="saved-item" type="button" data-nav="routes">
+                <span class="saved-item__icon saved-item__icon--star">⭐</span>
+                <div class="saved-item__body">
+                  <strong>집 → 회사</strong>
+                  <p>해운대구 우동 → 부산역 · 28분</p>
+                </div>
+                <svg class="saved-item__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+              </button>
+            </li>
+            <li>
+              <button class="saved-item" type="button" data-nav="routes">
+                <span class="saved-item__icon saved-item__icon--star">⭐</span>
+                <div class="saved-item__body">
+                  <strong>센텀시티 쇼핑</strong>
+                  <p>우동 → 센텀시티 · 15분</p>
+                </div>
+                <svg class="saved-item__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+              </button>
+            </li>
+            <li>
+              <button class="saved-item" type="button" data-nav="routes">
+                <span class="saved-item__icon saved-item__icon--star">⭐</span>
+                <div class="saved-item__body">
+                  <strong>광안리 야경</strong>
+                  <p>해운대 → 광안리 · 22분</p>
+                </div>
+                <svg class="saved-item__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+              </button>
+            </li>
+          </ul>
+          <p class="empty-hint">Supabase 연동 후 즐겨찾기가 계정에 저장됩니다.</p>
+        </div>
+
+        <div class="saved-panel" id="panel-recent">
+          <ul class="saved-list">
+            <li>
+              <button class="saved-item" type="button" data-nav="search">
+                <span class="saved-item__icon">🕐</span>
+                <div class="saved-item__body">
+                  <strong>부산역</strong>
+                  <p>오늘 17:05 · 해운대구 우동에서 검색</p>
+                </div>
+                <svg class="saved-item__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+              </button>
+            </li>
+            <li>
+              <button class="saved-item" type="button" data-nav="search">
+                <span class="saved-item__icon">🕐</span>
+                <div class="saved-item__body">
+                  <strong>서면역</strong>
+                  <p>오늘 14:32 · 해운대구 우동에서 검색</p>
+                </div>
+                <svg class="saved-item__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+              </button>
+            </li>
+            <li>
+              <button class="saved-item" type="button" data-nav="search">
+                <span class="saved-item__icon">🕐</span>
+                <div class="saved-item__body">
+                  <strong>국제시장</strong>
+                  <p>어제 19:18 · 센텀시티에서 검색</p>
+                </div>
+                <svg class="saved-item__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+              </button>
+            </li>
+            <li>
+              <button class="saved-item" type="button" data-nav="search">
+                <span class="saved-item__icon">🕐</span>
+                <div class="saved-item__body">
+                  <strong>광안리해수욕장</strong>
+                  <p>어제 11:45 · 우동에서 검색</p>
+                </div>
+                <svg class="saved-item__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+              </button>
+            </li>
+          </ul>
+          <button class="text-btn text-btn--center" type="button">최근 검색 전체 삭제</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 하단 네비게이션 -->
+    <nav class="bottom-nav" aria-label="주요 메뉴">
+      <button class="bottom-nav__item bottom-nav__item--active" type="button" data-nav="home">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9.5 12 3l9 6.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z"/><path d="M9 21V12h6v9"/></svg>
+        <span>홈</span>
+      </button>
+      <button class="bottom-nav__item" type="button" data-nav="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <span>검색</span>
+      </button>
+      <button class="bottom-nav__item" type="button" data-nav="realtime">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+        <span>실시간</span>
+      </button>
+      <button class="bottom-nav__item" type="button" data-nav="golden">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><circle cx="12" cy="12" r="4"/></svg>
+        <span>막차</span>
+      </button>
+      <button class="bottom-nav__item" type="button" data-nav="saved">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+        <span>저장</span>
+      </button>
+    </nav>
+
+    <!-- 토스트 -->
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </div>
+
+  <!-- Kakao SDK는 script.js에서 순서 보장하며 로드 -->
+  <script src="script.js"></script>
+</body>
+</html>
