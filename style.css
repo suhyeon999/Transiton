@@ -890,6 +890,19 @@ ul {
   margin-top: auto;
 }
 
+.btn--block {
+  width: 100%;
+}
+
+.btn--ghost {
+  background: var(--surface-muted, #f3f4f6);
+  color: var(--text-primary);
+}
+
+.btn--ghost:active {
+  transform: scale(0.98);
+}
+
 /* Tabs */
 
 .tabs {
@@ -1233,6 +1246,21 @@ ul {
   font-size: 0.85em;
   color: var(--text-muted);
   font-weight: 500;
+}
+
+.timeline__stop-link--exit {
+  font-size: 0.85em;
+}
+
+.timeline__transfer-dir {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin-top: 6px;
+}
+
+.timeline__transfer-dir strong {
+  color: var(--accent-orange);
+  font-weight: 700;
 }
 
 .timeline__countdown,
@@ -1910,4 +1938,253 @@ ul {
 .toast--visible {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
+}
+
+/* Home Safe (귀가안심) */
+
+.content--homesafe {
+  gap: 16px;
+}
+
+.homesafe-panel[hidden],
+.homesafe-dashboard[hidden] {
+  display: none !important;
+}
+
+.homesafe-profile,
+.homesafe-add-card,
+.homesafe-track-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+}
+
+.homesafe-code-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.homesafe-code-row__label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.homesafe-code-row__code {
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--primary);
+}
+
+.homesafe-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.homesafe-map-wrap {
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  min-height: 220px;
+}
+
+.homesafe-map-wrap--dashboard {
+  min-height: 200px;
+}
+
+.homesafe-map {
+  width: 100%;
+  height: 220px;
+  background: #e5e7eb;
+}
+
+.homesafe-track-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.homesafe-track-card__eta {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.homesafe-track-card__dest {
+  margin-top: 8px;
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+}
+
+.homesafe-track-card__meta {
+  margin-top: 4px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.homesafe-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.homesafe-actions__row {
+  display: flex;
+  gap: 8px;
+}
+
+.homesafe-actions__row .btn {
+  flex: 1;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field__label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.field__input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font: inherit;
+  background: #fff;
+}
+
+.info-banner--compact {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  font-size: 0.78rem;
+}
+
+.homesafe-member-list,
+.homesafe-group-list,
+.homesafe-status-board {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.homesafe-member-card,
+.homesafe-status-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.homesafe-member-card__avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--primary-soft);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+}
+
+.homesafe-member-card__body strong,
+.homesafe-status-item strong {
+  display: block;
+  font-size: 0.92rem;
+}
+
+.homesafe-member-card__body p,
+.homesafe-status-item span {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.homesafe-status-item {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.homesafe-status-item--done {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+.homesafe-group-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  text-align: left;
+}
+
+.homesafe-group-card strong {
+  display: block;
+  font-size: 0.95rem;
+}
+
+.homesafe-group-card p {
+  margin-top: 4px;
+  font-size: 0.78rem;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.homesafe-group-card svg {
+  width: 18px;
+  height: 18px;
+  color: var(--text-muted);
+}
+
+.homesafe-dashboard__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.homesafe-dashboard__head h3 {
+  font-size: 1rem;
+}
+
+.homesafe-dashboard__code {
+  font-size: 0.78rem;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.homesafe-dashboard .btn {
+  margin-top: 8px;
+}
+
+.tabs--homesafe {
+  position: sticky;
+  top: 0;
+  z-index: 5;
 }

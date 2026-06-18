@@ -70,11 +70,11 @@
             </span>
             <span class="quick-action__label">막차 패스</span>
           </button>
-          <button class="quick-action" type="button" data-nav="saved">
+          <button class="quick-action" type="button" data-nav="homesafe">
             <span class="quick-action__icon quick-action__icon--orange">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
             </span>
-            <span class="quick-action__label">즐겨찾기</span>
+            <span class="quick-action__label">귀가안심</span>
           </button>
         </div>
 
@@ -351,30 +351,130 @@
       </div>
     </section>
 
-    <!-- ===== 6. 즐겨찾기 및 최근 검색 기록 ===== -->
-    <section class="view" id="view-saved" data-view="saved">
+    <!-- ===== 6. 귀가안심 (Home Safe) ===== -->
+    <section class="view" id="view-homesafe" data-view="homesafe">
       <header class="header header--compact">
-        <button class="icon-btn icon-btn--back" type="button" data-nav="home" aria-label="뒤로">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+        <h2 class="header__title">귀가안심</h2>
+        <button class="icon-btn" type="button" id="homesafe-refresh" aria-label="새로고침">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
         </button>
-        <h2 class="header__title">저장 · 기록</h2>
       </header>
 
-      <div class="tabs" role="tablist">
-        <button class="tab tab--active" type="button" role="tab" data-saved-tab="favorites">즐겨찾기</button>
-        <button class="tab" type="button" role="tab" data-saved-tab="recent">최근 검색</button>
+      <div class="tabs tabs--homesafe" role="tablist">
+        <button class="tab tab--active" type="button" role="tab" data-homesafe-tab="solo">내 귀가</button>
+        <button class="tab" type="button" role="tab" data-homesafe-tab="friends">친구</button>
+        <button class="tab" type="button" role="tab" data-homesafe-tab="groups">그룹</button>
       </div>
 
-      <div class="content">
-        <div class="saved-panel saved-panel--active" id="panel-favorites">
-          <ul class="saved-list" id="saved-favorites-list"></ul>
-          <p class="empty-hint" id="saved-favorites-empty">고정한 자주 가는 경로가 없습니다.</p>
+      <div class="content content--homesafe">
+        <div class="info-banner info-banner--compact" id="homesafe-config-banner" hidden>
+          <p>Supabase 연동 후 친구·그룹 실시간 공유가 활성화됩니다. README의 귀가안심 설정을 참고하세요.</p>
         </div>
 
-        <div class="saved-panel" id="panel-recent">
-          <ul class="saved-list" id="saved-recent-list"></ul>
-          <p class="empty-hint" id="saved-recent-empty" hidden>최근 검색 기록이 없습니다.</p>
-          <button class="text-btn text-btn--center" type="button" id="saved-clear-recent" hidden>최근 검색 전체 삭제</button>
+        <!-- 내 귀가 -->
+        <div class="homesafe-panel homesafe-panel--active" id="homesafe-panel-solo">
+          <div class="homesafe-profile">
+            <label class="field">
+              <span class="field__label">내 이름</span>
+              <input class="field__input" type="text" id="homesafe-user-name" maxlength="20" placeholder="이름">
+            </label>
+            <div class="homesafe-code-row">
+              <div>
+                <p class="homesafe-code-row__label">내 초대 코드</p>
+                <p class="homesafe-code-row__code" id="homesafe-my-code">—</p>
+              </div>
+              <button class="btn btn--ghost btn--sm" type="button" id="homesafe-copy-code">복사</button>
+            </div>
+            <label class="homesafe-consent">
+              <input type="checkbox" id="homesafe-share-consent">
+              <span>위치 공유에 동의합니다 (친구·그룹과 공유)</span>
+            </label>
+          </div>
+
+          <div class="homesafe-map-wrap">
+            <div id="homesafe-map" class="homesafe-map" role="region" aria-label="귀가안심 지도"></div>
+          </div>
+
+          <div class="homesafe-track-card" id="homesafe-track-card">
+            <div class="homesafe-track-card__head">
+              <strong id="homesafe-status-label">귀가 대기</strong>
+              <span class="homesafe-track-card__eta" id="homesafe-eta-label">—</span>
+            </div>
+            <p class="homesafe-track-card__dest" id="homesafe-dest-label">목적지를 입력하고 귀가를 시작하세요</p>
+            <p class="homesafe-track-card__meta" id="homesafe-meta-label">남은 거리 · 시간</p>
+          </div>
+
+          <div class="homesafe-actions">
+            <label class="field">
+              <span class="field__label">귀가 목적지</span>
+              <input class="field__input" type="text" id="homesafe-dest-input" placeholder="예: 집, 기숙사, 부산역">
+            </label>
+            <div class="homesafe-actions__row">
+              <button class="btn btn--primary" type="button" id="homesafe-start-btn">귀가 시작</button>
+              <button class="btn btn--ghost" type="button" id="homesafe-stop-btn" hidden>종료</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 친구 -->
+        <div class="homesafe-panel" id="homesafe-panel-friends" hidden>
+          <div class="homesafe-add-card">
+            <label class="field">
+              <span class="field__label">친구 초대 코드</span>
+              <input class="field__input" type="text" id="homesafe-friend-code" placeholder="SAFE-1234" autocapitalize="characters">
+            </label>
+            <button class="btn btn--primary btn--block" type="button" id="homesafe-add-friend-btn">친구 추가</button>
+          </div>
+          <section class="section section--compact">
+            <h3 class="section__title">친구 목록</h3>
+            <ul class="homesafe-member-list" id="homesafe-friends-list"></ul>
+            <p class="empty-hint" id="homesafe-friends-empty">추가된 친구가 없습니다.</p>
+          </section>
+        </div>
+
+        <!-- 그룹 -->
+        <div class="homesafe-panel" id="homesafe-panel-groups" hidden>
+          <div class="homesafe-add-card">
+            <label class="field">
+              <span class="field__label">그룹 이름</span>
+              <input class="field__input" type="text" id="homesafe-group-name" placeholder="경성대 귀가 그룹">
+            </label>
+            <button class="btn btn--primary btn--block" type="button" id="homesafe-create-group-btn">그룹 만들기</button>
+          </div>
+          <div class="homesafe-add-card">
+            <label class="field">
+              <span class="field__label">그룹 초대 코드</span>
+              <input class="field__input" type="text" id="homesafe-group-code" placeholder="GROUP-1234" autocapitalize="characters">
+            </label>
+            <button class="btn btn--ghost btn--block" type="button" id="homesafe-join-group-btn">그룹 참여</button>
+          </div>
+          <section class="section section--compact">
+            <h3 class="section__title">내 그룹</h3>
+            <ul class="homesafe-group-list" id="homesafe-groups-list"></ul>
+            <p class="empty-hint" id="homesafe-groups-empty">참여 중인 그룹이 없습니다.</p>
+          </section>
+        </div>
+
+        <!-- 그룹 대시보드 -->
+        <div class="homesafe-dashboard" id="homesafe-group-dashboard" hidden>
+          <header class="homesafe-dashboard__head">
+            <button class="icon-btn icon-btn--back" type="button" id="homesafe-dashboard-back" aria-label="뒤로">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+            </button>
+            <div>
+              <h3 id="homesafe-dashboard-title">그룹</h3>
+              <p class="homesafe-dashboard__code" id="homesafe-dashboard-code">—</p>
+            </div>
+            <button class="btn btn--ghost btn--sm" type="button" id="homesafe-copy-group-code">코드 복사</button>
+          </header>
+          <div class="homesafe-map-wrap homesafe-map-wrap--dashboard">
+            <div id="homesafe-group-map" class="homesafe-map" role="region" aria-label="그룹 멤버 지도"></div>
+          </div>
+          <section class="section section--compact">
+            <h3 class="section__title">멤버 상태</h3>
+            <ul class="homesafe-status-board" id="homesafe-status-board"></ul>
+          </section>
+          <button class="btn btn--primary btn--block" type="button" id="homesafe-group-start-btn">이 그룹으로 귀가 시작</button>
         </div>
       </div>
     </section>
@@ -397,9 +497,9 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         <span>막차</span>
       </button>
-      <button class="bottom-nav__item" type="button" data-nav="saved">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
-        <span>저장</span>
+      <button class="bottom-nav__item" type="button" data-nav="homesafe">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+        <span>귀가안심</span>
       </button>
     </nav>
 
@@ -430,6 +530,14 @@
     </div>
   </div>
 
+  <script>
+    window.TRANSITON_CONFIG = window.TRANSITON_CONFIG || {
+      supabaseUrl: "",
+      supabaseAnonKey: "",
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="homesafe.js"></script>
   <!-- Kakao Maps SDK (script.js보다 먼저 로드) -->
   <script
     src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=296c5ade868479775159b17f059f53e0&amp;libraries=services&amp;autoload=false"

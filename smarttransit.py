@@ -29,7 +29,7 @@ def index():
 
 @app.route("/<path:filename>")
 def static_files(filename):
-    allowed = {"style.css", "script.js", "index.html"}
+    allowed = {"style.css", "script.js", "homesafe.js", "index.html"}
     if filename in allowed:
         return send_from_directory(".", filename)
     return jsonify({"error": "Not found"}), 404
@@ -71,6 +71,16 @@ def api_route():
         service.plan_transit_route(
             origin_lat, origin_lng, dest_lat, dest_lng, dest_name, origin_label
         )
+    )
+
+
+@app.route("/api/config")
+def api_config():
+    return jsonify(
+        {
+            "supabaseUrl": os.environ.get("SUPABASE_URL", ""),
+            "supabaseAnonKey": os.environ.get("SUPABASE_ANON_KEY", ""),
+        }
     )
 
 

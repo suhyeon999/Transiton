@@ -354,23 +354,70 @@ class TransitService:
         )
         return best["name"], best["lat"], best["lng"]
 
-    def _enrich_subway_leg(self, leg, origin_lat, origin_lng, dest_lat, dest_lng):
-        board_stop = leg.get("board_stop")
-        alight_stop = leg.get("alight_stop")
-        if board_stop:
-            board_st = self._station_by_name(board_stop)
-            exit_name, _, _ = self._nearest_exit(board_stop, origin_lat, origin_lng)
-            leg["board_exit"] = exit_name
-            if board_st:
-                leg["board_stop_lat"] = board_st["lat"]
-                leg["board_stop_lng"] = board_st["lng"]
-        if alight_stop:
-            alight_st = self._station_by_name(alight_stop)
-            exit_name, _, _ = self._nearest_exit(alight_stop, dest_lat, dest_lng)
-            leg["alight_exit"] = exit_name
-            if alight_st:
-                leg["alight_stop_lat"] = alight_st["lat"]
-                leg["alight_stop_lng"] = alight_st["lng"]
+    def _line_direction(self, line, from_station, to_station):
+        from_st = self._station_by_name(from_station)
+        to_st = self._station_by_name(to_station)
+        if not from_st or not to_st:
+            return "운행 방면"
+        if line == "1":
+            return (
+                "다대포해수욕장 방면"
+                if to_st["lng"] < from_st["lng"]
+                else "노포 방면"
+            )
+        if line == "2":
+            return (
+                "장산 방면"
+                if to_st["lng"] > from_st["lng"]
+                else "양산 방면"
+            )
+        return "운행 방면"
+
+    def _enrich_route_legs(self, legs, origin_lat, origin_lng, dest_lat, dest_lng):
+        subway_indices = [i for i, leg in enumerate(legs) if leg.get("type") == "subway"]
+        if not subway_indices:
+            return
+
+        first_idx = subway_indices[0]
+        last_idx = subway_indices[-1]
+
+        for idx in subway_indices:
+            leg = legs[idx]
+            leg["show_board_exit"] = idx == first_idx
+            leg["show_alight_exit"] = idx == last_idx
+
+            board_stop = leg.get("board_stop")
+            alight_stop = leg.get("alight_stop")
+
+            if idx == first_idx and board_stop:
+                board_st = self._station_by_name(board_stop)
+                exit_name, _, _ = self._nearest_exit(board_stop, origin_lat, origin_lng)
+                leg["board_exit"] = exit_name
+                if board_st:
+                    leg["board_stop_lat"] = board_st["lat"]
+                    leg["board_stop_lng"] = board_st["lng"]
+            elif board_stop:
+                board_st = self._station_by_name(board_stop)
+                if board_st:
+                    leg["board_stop_lat"] = board_st["lat"]
+                    leg["board_stop_lng"] = board_st["lng"]
+
+            if idx == last_idx and alight_stop:
+                alight_st = self._station_by_name(alight_stop)
+                exit_name, exit_lat, exit_lng = self._nearest_exit(
+                    alight_stop, dest_lat, dest_lng
+                )
+                leg["alight_exit"] = exit_name
+                leg["alight_exit_lat"] = exit_lat
+                leg["alight_exit_lng"] = exit_lng
+                if alight_st:
+                    leg["alight_stop_lat"] = alight_st["lat"]
+                    leg["alight_stop_lng"] = alight_st["lng"]
+            elif alight_stop:
+                alight_st = self._station_by_name(alight_stop)
+                if alight_st:
+                    leg["alight_stop_lat"] = alight_st["lat"]
+                    leg["alight_stop_lng"] = alight_st["lng"]
 
     def plan_transit_route(
         self,
@@ -434,12 +481,35 @@ class TransitService:
             if total_dist > 4500 and alight_stop not in ("서면역", "연산역", "교대역"):
                 transfers += 1
                 line1_alight = alight_stop
+                line1_direction = self._line_direction("1", "서면역", line1_alight)
+                transfer_arrivals = subway.get("arrivals") or []
+                transfer_pick = (
+                    transfer_arrivals[1]
+                    if len(transfer_arrivals) > 1
+                    else transfer_arrivals[0]
+                    if transfer_arrivals
+                    else {"eta": 5, "arrival_sec": 300}
+                )
+                transfer_wait_sec = max(
+                    0,
+                    int(
+                        transfer_pick.get("arrival_sec")
+                        or transfer_pick.get("eta", 5) * 60
+                    ),
+                )
+                transfer_wait_min = max(0, transfer_wait_sec // 60)
                 legs.append(
                     {
                         "type": "transfer",
                         "minutes": 4,
                         "label": "환승 · 서면역",
                         "detail": "2호선 → 1호선",
+                        "station": "서면역",
+                        "from_line": "2",
+                        "to_line": "1",
+                        "direction": line1_direction,
+                        "wait_min": transfer_wait_min,
+                        "wait_sec": transfer_wait_sec,
                     }
                 )
                 line1_min = max(6, int(total_dist / 1200))
@@ -451,9 +521,10 @@ class TransitService:
                         "wait_min": 0,
                         "wait_sec": 0,
                         "label": f"1호선 · {line1_min}분",
-                        "detail": f"서면역 → {line1_alight} 방면",
+                        "detail": f"서면역 → {line1_alight} · {line1_direction}",
                         "board_stop": "서면역",
                         "alight_stop": line1_alight,
+                        "board_direction": line1_direction,
                     }
                 )
                 fare += 300
@@ -497,9 +568,7 @@ class TransitService:
         now = now_kst()
         arrival = now + timedelta(minutes=move_min)
 
-        for leg in legs:
-            if leg.get("type") == "subway":
-                self._enrich_subway_leg(leg, origin_lat, origin_lng, dest_lat, dest_lng)
+        self._enrich_route_legs(legs, origin_lat, origin_lng, dest_lat, dest_lng)
 
         return {
             "origin": {"lat": origin_lat, "lng": origin_lng, "label": origin_label or DEFAULT_LOCATION["label"]},

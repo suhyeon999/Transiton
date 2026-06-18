@@ -5,7 +5,7 @@
 (function () {
   "use strict";
 
-  const VIEWS = ["home", "search", "realtime", "routes", "golden", "saved"];
+  const VIEWS = ["home", "search", "realtime", "routes", "golden", "homesafe"];
   const MAP_CENTER = { lat: 35.1341, lng: 129.0963, label: "부산 남구 대연동" };
   const KAKAO_APP_KEY = "296c5ade868479775159b17f059f53e0";
   const KAKAO_SDK_URL = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_APP_KEY}&libraries=services&autoload=false`;
@@ -478,7 +478,11 @@
         resetGoldenHeroDesc();
       }
     }
-    if (viewName === "saved") renderSavedView();
+    if (viewName === "homesafe") {
+      window.TransitONHomeSafe?.onShowView?.();
+    } else {
+      window.TransitONHomeSafe?.onHideView?.();
+    }
     updateRouteSummary();
   }
 
@@ -580,14 +584,12 @@
     state.recentSearches = [name, ...state.recentSearches.filter((s) => s !== name)].slice(0, 12);
     saveJsonStorage("transiton-recent", state.recentSearches);
     renderSearchPanels();
-    renderSavedView();
   }
 
   function clearRecentSearches() {
     state.recentSearches = [];
     saveJsonStorage("transiton-recent", []);
     renderSearchPanels();
-    renderSavedView();
     showToast("검색 기록을 삭제했습니다");
   }
 
@@ -599,10 +601,9 @@
     const existing = state.frequentRoutes.find((r) => r.destQuery === destQuery);
     if (existing?.pinned) {
       state.frequentRoutes = state.frequentRoutes.filter((r) => r.id !== existing.id);
-      persistFrequentRoutes();
-      renderSearchPanels();
-      renderSavedView();
-      showToast("고정을 해제했습니다");
+    persistFrequentRoutes();
+    renderSearchPanels();
+    showToast("고정을 해제했습니다");
       return;
     }
     state.frequentRoutes.unshift({
@@ -616,7 +617,6 @@
     });
     persistFrequentRoutes();
     renderSearchPanels();
-    renderSavedView();
     showToast("자주 가는 경로에 고정했습니다");
   }
 
@@ -643,7 +643,6 @@
     persistFrequentRoutes();
     state.favoriteAdded = true;
     renderSearchPanels();
-    renderSavedView();
     showToast("자주 가는 경로에 고정했습니다");
   }
 
@@ -748,48 +747,6 @@
       document.getElementById("frequent-routes-list"),
       document.getElementById("frequent-routes-empty")
     );
-  }
-
-  function renderSavedView() {
-    const favList = document.getElementById("saved-favorites-list");
-    const favEmpty = document.getElementById("saved-favorites-empty");
-    const recentList = document.getElementById("saved-recent-list");
-    const recentEmpty = document.getElementById("saved-recent-empty");
-    const clearRecent = document.getElementById("saved-clear-recent");
-
-    renderFrequentRoutesList(favList, favEmpty);
-
-    if (!state.recentSearches.length) {
-      if (recentList) recentList.innerHTML = "";
-      if (recentEmpty) recentEmpty.hidden = false;
-      if (clearRecent) clearRecent.hidden = true;
-    } else {
-      if (recentEmpty) recentEmpty.hidden = true;
-      if (clearRecent) clearRecent.hidden = false;
-      if (recentList) {
-        recentList.innerHTML = state.recentSearches
-          .map(
-            (name) => `
-          <li>
-            <button class="saved-item" type="button" data-recent-saved="${encodeURIComponent(name)}">
-              <span class="saved-item__icon">🕐</span>
-              <div class="saved-item__body">
-                <strong>${name}</strong>
-                <p>탭하여 다시 검색</p>
-              </div>
-              <svg class="saved-item__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
-            </button>
-          </li>`
-          )
-          .join("");
-        recentList.querySelectorAll("[data-recent-saved]").forEach((btn) => {
-          btn.addEventListener("click", async () => {
-            await applyRecentSearch(decodeURIComponent(btn.dataset.recentSaved));
-            showView("search");
-          });
-        });
-      }
-    }
   }
 
   function renderGoldenSavedPlaces() {
@@ -1435,7 +1392,14 @@
     goldenWalkMap = null;
   }
 
-  async function openWalkGuideModal({ stopName, stopLat, stopLng, walkMin, distM }) {
+  async function openWalkGuideModal({
+    mode = "from-current",
+    stopName,
+    stopLat,
+    stopLng,
+    walkMin,
+    distM,
+  }) {
     const modal = document.getElementById("golden-walk-modal");
     const title = document.getElementById("golden-walk-title");
     const sub = document.getElementById("golden-walk-sub");
@@ -1449,27 +1413,52 @@
       return;
     }
 
-    let stopPoint = {
+    const dest = locationState.destination;
+    const isExitToDest = mode === "exit-to-dest";
+
+    let origin;
+    let destination = {
       lat: stopLat,
       lng: stopLng,
       name: stopName,
     };
 
-    if (!isValidCoord(stopPoint.lat, stopPoint.lng)) {
-      try {
-        stopPoint = await geocodeDestination(stopName);
-      } catch {
-        showToast("역·정류장 위치를 찾지 못했습니다");
+    if (isExitToDest) {
+      if (!isValidCoord(stopLat, stopLng)) {
+        showToast("출구 위치를 찾지 못했습니다");
         return;
+      }
+      if (!dest) {
+        showToast("목적지 정보가 없습니다");
+        return;
+      }
+      origin = { lat: stopLat, lng: stopLng, label: stopName };
+      destination = dest;
+    } else {
+      origin = locationState.current;
+      if (!isValidCoord(destination.lat, destination.lng)) {
+        try {
+          destination = await geocodeDestination(stopName);
+        } catch {
+          showToast("역·정류장 위치를 찾지 못했습니다");
+          return;
+        }
       }
     }
 
-    const origin = locationState.current;
-    const distance = distM || haversineM(origin, stopPoint);
+    const distance = distM || haversineM(origin, destination);
     const minutes = walkMin || walkMinutes(distance);
 
-    if (title) title.textContent = `${stopName} 도보 안내`;
-    if (sub) sub.textContent = `${shortLabel(origin.label)} → ${stopName}`;
+    if (title) {
+      title.textContent = isExitToDest
+        ? `${stopName} → ${destination.name}`
+        : `${stopName} 도보 안내`;
+    }
+    if (sub) {
+      sub.textContent = isExitToDest
+        ? `${stopName} → ${destination.name}`
+        : `${shortLabel(origin.label)} → ${stopName}`;
+    }
     if (distEl) {
       distEl.textContent = `약 ${minutes}분 · ${formatDistance(distance)}`;
     }
@@ -1486,24 +1475,24 @@
     const startMarker = new kakao.maps.Marker({
       map: goldenWalkMap,
       position: toLatLng(origin),
-      title: "현재 위치",
+      title: isExitToDest ? stopName : "현재 위치",
     });
     const endMarker = new kakao.maps.Marker({
       map: goldenWalkMap,
-      position: toLatLng(stopPoint),
-      title: stopName,
+      position: toLatLng(destination),
+      title: isExitToDest ? destination.name : stopName,
     });
     goldenWalkOverlays.markers.push(startMarker, endMarker);
 
-    let path = [toLatLng(origin), toLatLng(stopPoint)];
-    const walking = await requestWalkingRoute(origin, stopPoint);
+    let path = [toLatLng(origin), toLatLng(destination)];
+    const walking = await requestWalkingRoute(origin, destination);
     if (walking?.path?.length) path = walking.path;
 
     const line = new kakao.maps.Polyline({
       map: goldenWalkMap,
       path,
       strokeWeight: 6,
-      strokeColor: "#22c55e",
+      strokeColor: isExitToDest ? "#3b82f6" : "#22c55e",
       strokeOpacity: 0.9,
       strokeStyle: "solid",
     });
@@ -1718,11 +1707,41 @@
     }
 
     const cleanStop = formatSubwayStopName(stop);
-    const exit = isBoard ? leg.board_exit : leg.alight_exit;
-    const lat = isBoard ? leg.board_stop_lat : leg.alight_stop_lat;
-    const lng = isBoard ? leg.board_stop_lng : leg.alight_stop_lng;
-    const exitText = exit ? `<span class="timeline__exit">${exit}</span>` : "";
-    return `<p class="timeline__stop${cls}">${label} · <button type="button" class="timeline__stop-link" data-stop-name="${cleanStop.replace(/"/g, "&quot;")}" data-stop-lat="${lat ?? ""}" data-stop-lng="${lng ?? ""}">${cleanStop}</button> ${exitText}</p>`;
+
+    if (isBoard) {
+      if (!leg.show_board_exit) {
+        return `<p class="timeline__stop">탑승 · ${cleanStop}</p>`;
+      }
+      const exit = leg.board_exit;
+      const lat = leg.board_stop_lat;
+      const lng = leg.board_stop_lng;
+      const exitText = exit ? `<span class="timeline__exit">${exit}</span>` : "";
+      return `<p class="timeline__stop">${label} · <button type="button" class="timeline__stop-link" data-walk-mode="from-current" data-stop-name="${cleanStop.replace(/"/g, "&quot;")}" data-stop-lat="${lat ?? ""}" data-stop-lng="${lng ?? ""}">${cleanStop}</button>${exitText}</p>`;
+    }
+
+    if (!leg.show_alight_exit) {
+      return `<p class="timeline__stop timeline__stop--alight">하차 · ${cleanStop}</p>`;
+    }
+
+    const exit = leg.alight_exit;
+    const exitLat = leg.alight_exit_lat;
+    const exitLng = leg.alight_exit_lng;
+    const exitBtn = exit
+      ? `<button type="button" class="timeline__stop-link timeline__stop-link--exit" data-walk-mode="exit-to-dest" data-stop-name="${exit.replace(/"/g, "&quot;")}" data-stop-lat="${exitLat ?? ""}" data-stop-lng="${exitLng ?? ""}">${exit}</button>`
+      : "";
+    return `<p class="timeline__stop timeline__stop--alight">하차 · ${cleanStop} ${exitBtn}</p>`;
+  }
+
+  function renderTransferTimelineExtra(leg, now) {
+    const waitSec = leg.wait_sec ?? (leg.wait_min != null ? leg.wait_min * 60 : 0);
+    const direction = leg.direction
+      ? `<p class="timeline__transfer-dir">${leg.to_line || ""}호선 <strong>${leg.direction}</strong> 열차 탑승</p>`
+      : "";
+    const countdown =
+      waitSec > 0
+        ? `<span class="timeline__countdown" data-role="leg-countdown" data-deadline="${now + waitSec * 1000}">환승 열차 도착 ${formatCountdownMs(waitSec * 1000)}</span>`
+        : "";
+    return `${direction}${countdown}`;
   }
 
   function renderTransitTimeline(legs) {
@@ -1738,6 +1757,19 @@
               : leg.type === "bus"
                 ? "timeline__dot--bus"
                 : `timeline__dot--subway line-${leg.line || "2"}`;
+
+        if (leg.type === "transfer") {
+          return `
+        <li class="timeline__item">
+          <div class="timeline__dot ${dotClass}"></div>
+          <div class="timeline__content">
+            <strong>${leg.label}</strong>
+            <p>${leg.detail || ""}</p>
+            ${renderTransferTimelineExtra(leg, now)}
+          </div>
+        </li>`;
+        }
+
         const board = renderTimelineStopLine("board", leg);
         const alight = renderTimelineStopLine("alight", leg);
         const waitSec = leg.wait_sec ?? (leg.wait_min != null ? leg.wait_min * 60 : 0);
@@ -2443,7 +2475,6 @@
   });
 
   document.getElementById("clear-search-history")?.addEventListener("click", clearRecentSearches);
-  document.getElementById("saved-clear-recent")?.addEventListener("click", clearRecentSearches);
 
   document.getElementById("golden-dest-search")?.addEventListener("click", searchGoldenDestination);
   document.getElementById("golden-walk-close")?.addEventListener("click", closeGoldenWalkModal);
@@ -2454,14 +2485,17 @@
     const btn = e.target.closest(".timeline__stop-link");
     if (!btn) return;
     e.preventDefault();
+    const mode = btn.dataset.walkMode || "from-current";
     const stopName = btn.dataset.stopName;
     const lat = parseFloat(btn.dataset.stopLat);
     const lng = parseFloat(btn.dataset.stopLng);
     let distM = null;
-    if (isValidCoord(lat, lng)) {
+    if (mode === "from-current" && isValidCoord(lat, lng)) {
       distM = haversineM(locationState.current, { lat, lng });
+    } else if (mode === "exit-to-dest" && isValidCoord(lat, lng) && locationState.destination) {
+      distM = haversineM({ lat, lng }, locationState.destination);
     }
-    openWalkGuideModal({ stopName, stopLat: lat, stopLng: lng, distM });
+    openWalkGuideModal({ mode, stopName, stopLat: lat, stopLng: lng, distM });
   });
   document.getElementById("golden-toggle-add-place")?.addEventListener("click", () => {
     const form = document.getElementById("golden-add-form");
@@ -2529,15 +2563,6 @@
       });
       document.getElementById("panel-bus")?.classList.toggle("tab-panel--active", key === "bus");
       document.getElementById("panel-subway")?.classList.toggle("tab-panel--active", key === "subway");
-    });
-  });
-
-  document.querySelectorAll("[data-saved-tab]").forEach((tab) => {
-    tab.addEventListener("click", () => {
-      const key = tab.dataset.savedTab;
-      document.querySelectorAll("[data-saved-tab]").forEach((t) => t.classList.toggle("tab--active", t === tab));
-      document.getElementById("panel-favorites")?.classList.toggle("saved-panel--active", key === "favorites");
-      document.getElementById("panel-recent")?.classList.toggle("saved-panel--active", key === "recent");
     });
   });
 
@@ -2982,5 +3007,19 @@
   renderGoldenSavedPlaces();
   checkApiHealth();
   initKakaoMap();
+  window.TransitONHomeSafe?.init?.({
+    showToast,
+    whenKakaoReady,
+    toLatLng,
+    createMap,
+    locationState,
+    haversineM,
+    formatDistance,
+    walkMinutes,
+    fetchTransitRoute,
+    geocodeDestination,
+    MAP_CENTER,
+    WALK_SPEED,
+  });
   showView("home");
 })();

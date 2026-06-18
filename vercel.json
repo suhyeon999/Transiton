@@ -11,6 +11,9 @@
     },
     "api/route.py": {
       "includeFiles": "{transit_service.py,api_helpers.py,requirements.txt}"
+    },
+    "api/config.py": {
+      "includeFiles": "{api_helpers.py,requirements.txt}"
     }
   }
 }

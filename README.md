@@ -77,8 +77,36 @@ JavaScript 키 → Web 도메인에 **접속 URL 그대로** 등록:
 | `GET /api/realtime` | 버스·지하철 실시간 도착 |
 | `GET /api/analysis?destination=부산역` | 막차/귀가 분석 |
 | `GET /api/route?dest_lat=&dest_lng=&dest_name=` | 대중교통 경로 |
+| `GET /api/config` | Supabase 공개 설정 (귀가안심) |
 
 실패 시 응답 JSON의 `api_diagnostics`에서 HTTP status / error / body_preview 확인.
+
+## 귀가안심 (Home Safe)
+
+친구·그룹과 실시간 귀가 상태를 공유합니다. Supabase + Realtime 사용.
+
+### Supabase 설정
+
+1. [Supabase](https://supabase.com) 프로젝트 생성
+2. SQL Editor → `supabase/schema.sql` 실행
+3. **Database → Replication** → `safe_tracking`, `group_members` Realtime ON
+
+### Vercel 환경 변수
+
+| 변수명 | 용도 |
+|--------|------|
+| `SUPABASE_URL` | Project URL |
+| `SUPABASE_ANON_KEY` | anon public key |
+
+로컬: `index.html`의 `window.TRANSITON_CONFIG`에 URL/키 입력 가능.
+
+### MVP 기능
+
+- **내 귀가**: 단독 추적 (위치, ETA, 걷기/버스/지하철 상태)
+- **친구**: `SAFE-1234` 코드로 추가 (위치 공유 동의 필요)
+- **그룹**: `GROUP-1234` 생성·참여, 멤버 실시간 대시보드
+
+Supabase 미설정 시 단독 귀가만 로컬로 동작합니다.
 
 ## 로컬 실행
 
@@ -97,3 +125,5 @@ python3 smarttransit.py
 - [ ] `/api/health` → `{"status":"ok"}`
 - [ ] 실시간 메뉴 → 버스/지하철 카드 표시
 - [ ] 경로 검색 → 타임라인(도보·환승·ETA) 표시
+- [ ] Supabase `SUPABASE_URL` / `SUPABASE_ANON_KEY` 설정
+- [ ] 귀가안심 탭 → 귀가 시작 / 그룹 대시보드
