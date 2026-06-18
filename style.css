@@ -1563,7 +1563,8 @@ ul {
   margin: 8px 0 0;
 }
 
-.golden-loading {
+.golden-loading,
+.app-loading {
   position: fixed;
   inset: 0;
   z-index: 200;
@@ -1573,11 +1574,13 @@ ul {
   background: rgba(15, 23, 42, 0.35);
 }
 
-.golden-loading[hidden] {
+.golden-loading[hidden],
+.app-loading[hidden] {
   display: none !important;
 }
 
-.golden-loading__box {
+.golden-loading__box,
+.app-loading__box {
   min-width: 120px;
   padding: 18px 28px;
   background: #fff;

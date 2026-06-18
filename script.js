@@ -57,6 +57,7 @@
   let goldenWalkMap = null;
   let goldenWalkOverlays = { markers: [], lines: [] };
   let lastGoldenBoard = null;
+  let appLoadingCount = 0;
 
   document.addEventListener("securitypolicyviolation", (e) => {
     if (!e.blockedURI?.includes("dapi.kakao.com") && !e.sourceFile?.includes("sdk.js")) return;
@@ -886,7 +887,7 @@
       showToast("막차 패스 목적지를 입력해 주세요");
       return;
     }
-    showGoldenLoading(true);
+    showAppLoading(true);
     try {
       await whenKakaoReady();
       const geo = await geocodeDestination(query);
@@ -904,7 +905,7 @@
     } catch {
       showToast(`'${query}' 목적지를 찾을 수 없습니다`);
     } finally {
-      showGoldenLoading(false);
+      showAppLoading(false);
     }
   }
 
@@ -1286,9 +1287,21 @@
       .join("");
   }
 
+  function showAppLoading(show) {
+    appLoadingCount += show ? 1 : -1;
+    if (appLoadingCount < 0) appLoadingCount = 0;
+    const el = document.getElementById("app-loading");
+    if (el) el.hidden = appLoadingCount === 0;
+  }
+
+  function showGoldenLoading(show) {
+    showAppLoading(show);
+  }
+
   async function loadRealtimeData() {
     if (realtimeLoading) return;
     realtimeLoading = true;
+    showAppLoading(true);
 
     const statusEl = document.getElementById("api-status");
     const busList = document.getElementById("bus-list");
@@ -1336,6 +1349,7 @@
       );
     } finally {
       realtimeLoading = false;
+      showAppLoading(false);
     }
   }
 
@@ -1390,11 +1404,6 @@
         <span class="golden-path__label">목적지</span>
         <span class="golden-path__sub">${dest}${endWalk ? ` · 도보 ${endWalk}분` : ""}</span>
       </div>`;
-  }
-
-  function showGoldenLoading(show) {
-    const el = document.getElementById("golden-loading");
-    if (el) el.hidden = !show;
   }
 
   function formatBoardStopName(best) {
@@ -1646,7 +1655,7 @@
 
     const schedule = document.getElementById("golden-schedule");
     setGoldenResultsVisible(true);
-    if (manageLoading) showGoldenLoading(true);
+    if (manageLoading) showAppLoading(true);
     if (schedule) schedule.innerHTML = `<p class="loading-text">막차·귀가 분석 중…</p>`;
 
     try {
@@ -1677,7 +1686,7 @@
         schedule.innerHTML = `<div class="info-banner"><p>분석 API 실패: ${err.message}<br>콘솔에서 status/bodyPreview 확인</p></div>`;
       }
     } finally {
-      if (manageLoading) showGoldenLoading(false);
+      if (manageLoading) showAppLoading(false);
     }
   }
 
@@ -1943,10 +1952,13 @@
     });
   }
 
-  async function computeRoute() {
+  async function computeRoute(options = {}) {
     if (!locationState.destination) return;
+    const skipLoading = options.skipLoading === true;
+    if (!skipLoading) showAppLoading(true);
     clearRouteLiveTimer();
 
+    try {
     const origin = locationState.current;
     const dest = locationState.destination;
     const straightDist = haversineM(origin, dest);
@@ -2036,6 +2048,9 @@
       renderMapLayer(routeMap, "route");
     }
     startRouteLiveTimer();
+    } finally {
+      if (!skipLoading) showAppLoading(false);
+    }
   }
 
   function renderRouteResult() {
@@ -2339,6 +2354,9 @@
       return false;
     }
 
+    const willCompute = navigate || state.currentView === "routes";
+    if (willCompute) showAppLoading(true);
+
     let dest;
     try {
       await whenKakaoReady();
@@ -2355,6 +2373,7 @@
           showToast(`목적지 검색 실패 (${err.code || err.message})`);
         }
       }
+      if (willCompute) showAppLoading(false);
       return false;
     }
 
@@ -2365,12 +2384,14 @@
     saveRecentSearch(dest.name);
     updateRouteSummary();
 
-    if (state.currentView === "routes" || navigate) {
-      updateMapRoute();
+    if (willCompute) {
       try {
-        await computeRoute();
+        updateMapRoute();
+        await computeRoute({ skipLoading: true });
       } catch (routeErr) {
         console.warn("[경로 계산]", routeErr);
+      } finally {
+        showAppLoading(false);
       }
     }
 
