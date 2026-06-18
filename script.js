@@ -26,7 +26,20 @@
   });
   let kakaoServicesReady = false;
   let kakaoBootstrapError = null;
+  let lastKakaoCspViolation = null;
   const PLACES_MAX_RADIUS = 20000;
+
+  document.addEventListener("securitypolicyviolation", (e) => {
+    if (!e.blockedURI?.includes("dapi.kakao.com") && !e.sourceFile?.includes("sdk.js")) return;
+    lastKakaoCspViolation = {
+      blockedURI: e.blockedURI,
+      violatedDirective: e.violatedDirective,
+      effectiveDirective: e.effectiveDirective,
+      disposition: e.disposition,
+      originalPolicy: e.originalPolicy?.slice(0, 200),
+    };
+    logKakaoError("CSP 위반 — Kakao SDK 차단 가능", lastKakaoCspViolation);
+  });
 
   function formatErrorForLog(err, depth = 0) {
     if (err == null) return null;
@@ -40,6 +53,12 @@
       sdkUrl: err.sdkUrl,
       hostname: err.hostname,
       eventType: err.eventType,
+      failureKind: err.failureKind,
+      appkey: err.appkey,
+      probeHttpStatus: err.probeHttpStatus,
+      probeJson: err.probeJson,
+      network: err.network,
+      diagnosis: err.diagnosis,
     };
     if (err.stack) out.stack = err.stack;
     if (err.diag) out.diag = err.diag;
@@ -97,24 +116,280 @@
     return err;
   }
 
+  function buildKakaoDomainHelp() {
+    const origin = location.origin;
+    return [
+      `현재 접속 주소: ${origin}`,
+      "카카오 Developers → 내 애플리케이션 → JavaScript 키 → Web → 사이트 도메인에 아래 주소를 등록:",
+      `  ${origin}`,
+      "※ https:// 포함, 끝에 / 없이 입력",
+      "※ Vercel Preview URL(*-git-*.vercel.app)은 production과 다르면 별도 등록 필요",
+      "※ 등록 후 콘솔 저장 → 1~2분 대기 → 새로고침",
+    ].join("\n");
+  }
+
+  function getKakaoSdkNetworkEntries() {
+    return performance
+      .getEntriesByType("resource")
+      .filter((e) => e.name.includes("dapi.kakao.com") && e.name.includes("sdk.js"))
+      .map((e) => ({
+        url: e.name,
+        initiatorType: e.initiatorType,
+        durationMs: Math.round(e.duration),
+        transferSize: e.transferSize,
+        encodedBodySize: e.encodedBodySize,
+        decodedBodySize: e.decodedBodySize,
+        responseStatus: e.responseStatus || 0,
+        startTime: Math.round(e.startTime),
+      }));
+  }
+
+  function getHtmlSdkScriptInfo() {
+    const tag = findKakaoSdkScriptTag();
+    if (!tag?.src) return { found: false };
+    let parsed;
+    try {
+      parsed = new URL(tag.src);
+    } catch {
+      return { found: true, src: tag.src, parseError: true };
+    }
+    const htmlAppkey = parsed.searchParams.get("appkey");
+    return {
+      found: true,
+      src: tag.src,
+      htmlAppkey,
+      libraries: parsed.searchParams.get("libraries"),
+      autoload: parsed.searchParams.get("autoload"),
+      appkeyMatchesJs: htmlAppkey === KAKAO_APP_KEY,
+      readyState: tag.readyState,
+    };
+  }
+
+  function logKakaoSdkConfig(context) {
+    const htmlInfo = getHtmlSdkScriptInfo();
+    const config = {
+      context,
+      sdkUrl: KAKAO_SDK_URL,
+      appkey: KAKAO_APP_KEY,
+      appkeyPrefix: `${KAKAO_APP_KEY.slice(0, 8)}…${KAKAO_APP_KEY.slice(-4)}`,
+      appkeyLength: KAKAO_APP_KEY.length,
+      origin: location.origin,
+      href: location.href,
+      referrer: document.referrer || "(none)",
+      userAgent: navigator.userAgent,
+      htmlSdkScript: htmlInfo,
+      allKakaoScriptTags: [...document.scripts]
+        .filter((s) => s.src?.includes("dapi.kakao.com"))
+        .map((s) => s.src),
+      pageCspMeta: document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content || null,
+    };
+    logKakao("SDK 설정", config);
+    console.info("[TransitON:Kakao] SDK URL:", KAKAO_SDK_URL);
+    console.info("[TransitON:Kakao] appkey:", KAKAO_APP_KEY);
+    return config;
+  }
+
+  function classifyKakaoProbe(probeJson, probeHttpStatus, probeBodyPreview) {
+    const msg = probeJson?.message || probeBodyPreview || "";
+    if (/domain mismatched/i.test(msg)) {
+      return {
+        failureKind: "DOMAIN_MISMATCH",
+        summary: `Web 도메인 미등록/불일치 — ${msg}`,
+        help: buildKakaoDomainHelp(),
+      };
+    }
+    if (/wrong appKey|appkey|app key/i.test(msg)) {
+      return {
+        failureKind: "INVALID_APPKEY",
+        summary: `JavaScript appkey 오류 — ${msg}`,
+        help: "카카오 Developers → JavaScript 키가 코드의 appkey와 동일한지 확인하세요.",
+      };
+    }
+    if (probeHttpStatus === 403 || probeHttpStatus === 404) {
+      return {
+        failureKind: "ACCESS_DENIED",
+        summary: `카카오 API 거부 (HTTP ${probeHttpStatus}) — ${msg || "본문 없음"}`,
+        help: buildKakaoDomainHelp(),
+      };
+    }
+    if (probeHttpStatus >= 500) {
+      return { failureKind: "KAKAO_SERVER_ERROR", summary: `카카오 서버 오류 HTTP ${probeHttpStatus}` };
+    }
+    return null;
+  }
+
+  async function diagnoseKakaoSdkScriptFailure(sdkUrl, event, scriptEl) {
+    const htmlInfo = getHtmlSdkScriptInfo();
+    const networkEntries = getKakaoSdkNetworkEntries();
+    const diagnosis = {
+      sdkUrl,
+      appkey: KAKAO_APP_KEY,
+      origin: location.origin,
+      href: location.href,
+      eventType: event?.type || null,
+      scriptSrc: scriptEl?.src || null,
+      htmlSdkScript: htmlInfo,
+      networkEntries,
+      lastCspViolation: lastKakaoCspViolation,
+      pageCspMeta: document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content || null,
+      probeHttpStatus: null,
+      probeOk: null,
+      probeJson: null,
+      probeBodyPreview: null,
+      probeFetchError: null,
+      failureKind: "UNKNOWN",
+      summary: "SDK script.onerror — 원인 분류 중",
+    };
+
+    if (htmlInfo.found && htmlInfo.appkeyMatchesJs === false) {
+      diagnosis.failureKind = "APPKEY_MISMATCH";
+      diagnosis.summary = "index.html SDK appkey와 script.js KAKAO_APP_KEY 불일치";
+      diagnosis.help =
+        `HTML appkey: ${htmlInfo.htmlAppkey}\nJS appkey: ${KAKAO_APP_KEY}\n두 값을 동일한 JavaScript 키로 맞추세요.`;
+      return diagnosis;
+    }
+
+    if (lastKakaoCspViolation) {
+      diagnosis.failureKind = "CSP_BLOCKED";
+      diagnosis.summary = `CSP가 Kakao SDK 로드를 차단 — ${lastKakaoCspViolation.violatedDirective}`;
+      diagnosis.help = `차단 URI: ${lastKakaoCspViolation.blockedURI}\nscript-src에 https://dapi.kakao.com 허용 필요`;
+      return diagnosis;
+    }
+
+    try {
+      const res = await fetch(sdkUrl, { method: "GET", cache: "no-store", credentials: "omit" });
+      diagnosis.probeHttpStatus = res.status;
+      diagnosis.probeOk = res.ok;
+      const text = await res.text();
+      diagnosis.probeBodyPreview = text.slice(0, 400);
+      try {
+        diagnosis.probeJson = JSON.parse(text);
+      } catch {
+        /* JS 본문이면 정상 SDK */
+      }
+      const classified = classifyKakaoProbe(diagnosis.probeJson, res.status, text);
+      if (classified) {
+        Object.assign(diagnosis, classified);
+        return diagnosis;
+      }
+      if (res.ok && text.includes("kakao")) {
+        diagnosis.failureKind = "SCRIPT_EXECUTION";
+        diagnosis.summary =
+          "fetch로 SDK 본문은 수신됐으나 script 태그 실행 실패 — CSP/adblock/중복 로드 확인";
+      }
+    } catch (fetchErr) {
+      diagnosis.probeFetchError = fetchErr?.message || String(fetchErr);
+      if (/failed to fetch|cors|network/i.test(diagnosis.probeFetchError)) {
+        diagnosis.probeNote =
+          "fetch probe CORS/네트워크 실패 (script 태그와 fetch 정책이 다를 수 있음) — Network 탭 확인";
+      }
+    }
+
+    const lastNet = networkEntries[networkEntries.length - 1];
+    if (lastNet) {
+      diagnosis.network = lastNet;
+      if (lastNet.responseStatus === 404 || lastNet.responseStatus === 403) {
+        if (diagnosis.failureKind === "UNKNOWN") {
+          diagnosis.failureKind = "NETWORK_HTTP_ERROR";
+          diagnosis.summary = `Network: sdk.js HTTP ${lastNet.responseStatus} (도메인/appkey 거부 가능)`;
+          diagnosis.help = buildKakaoDomainHelp();
+        }
+      } else if (lastNet.transferSize === 0 && lastNet.responseStatus === 0) {
+        if (diagnosis.failureKind === "UNKNOWN") {
+          diagnosis.failureKind = "NETWORK_BLOCKED";
+          diagnosis.summary =
+            "Network: transferSize=0 — CSP/adblock/오프라인/확장 프로그램 차단 가능";
+        }
+      }
+    } else if (diagnosis.failureKind === "UNKNOWN") {
+      diagnosis.failureKind = "NO_NETWORK_ENTRY";
+      diagnosis.summary = "Performance API에 sdk.js 요청 기록 없음 — 차단 또는 요청 미발생";
+    }
+
+    if (diagnosis.failureKind === "UNKNOWN") {
+      diagnosis.summary = "SDK script.onerror — Network 탭에서 sdk.js 상태 코드 확인 필요";
+      diagnosis.help = buildKakaoDomainHelp();
+    }
+
+    return diagnosis;
+  }
+
+  async function handleKakaoScriptLoadError(reject, at, sdkUrl, event, scriptEl) {
+    logKakaoSdkConfig(`script.onerror @ ${at}`);
+
+    const diagnosis = await diagnoseKakaoSdkScriptFailure(sdkUrl, event, scriptEl);
+
+    console.group("[TransitON:Kakao] SDK script.onerror — Network/진단");
+    console.error("location:", at);
+    console.error("failureKind:", diagnosis.failureKind);
+    console.error("summary:", diagnosis.summary);
+    console.error("sdkUrl:", sdkUrl);
+    console.error("appkey:", KAKAO_APP_KEY);
+    if (diagnosis.network) console.error("network (Performance):", diagnosis.network);
+    if (diagnosis.networkEntries?.length) console.error("networkEntries:", diagnosis.networkEntries);
+    if (diagnosis.probeHttpStatus != null) console.error("probeHttpStatus:", diagnosis.probeHttpStatus);
+    if (diagnosis.probeJson) console.error("probeJson:", diagnosis.probeJson);
+    if (diagnosis.probeBodyPreview) console.error("probeBodyPreview:", diagnosis.probeBodyPreview);
+    if (diagnosis.probeFetchError) console.error("probeFetchError:", diagnosis.probeFetchError);
+    if (diagnosis.lastCspViolation) console.error("cspViolation:", diagnosis.lastCspViolation);
+    if (diagnosis.help) console.error("help:\n" + diagnosis.help);
+    console.groupEnd();
+
+    reject(
+      makeKakaoError(diagnosis.summary, at, {
+        code: diagnosis.failureKind,
+        sdkUrl,
+        appkey: KAKAO_APP_KEY,
+        hostname: location.hostname,
+        origin: location.origin,
+        protocol: location.protocol,
+        eventType: event?.type,
+        help: diagnosis.help,
+        diagnosis,
+        network: diagnosis.network,
+        probeHttpStatus: diagnosis.probeHttpStatus,
+        probeJson: diagnosis.probeJson,
+        failureKind: diagnosis.failureKind,
+      })
+    );
+  }
+
   function showKakaoBootstrapError(err) {
     const message = err?.message || "알 수 없는 오류";
-    const location = err?.location ? ` @ ${err.location}` : "";
-    const full = `${message}${location}`;
+    const at = err?.location ? ` @ ${err.location}` : "";
+    const full = `${message}${at}`;
 
     logKakaoError("부트스트랩 실패 (상세)", err instanceof Error ? err : { message: full, raw: err });
+    if (err?.failureKind) console.error("failureKind:", err.failureKind);
+    if (err?.diagnosis) console.error("diagnosis:", err.diagnosis);
+    if (err?.network) console.error("network:", err.network);
+    if (err?.probeJson) console.error("probeJson:", err.probeJson);
+    if (err?.appkey) console.error("appkey:", err.appkey);
+    if (err?.sdkUrl) console.error("sdkUrl:", err.sdkUrl);
+    if (err?.help) console.error("help:\n" + err.help);
+    if (err?.origin) console.error("등록 필요 도메인:", err.origin);
 
     const banner = document.getElementById("kakao-error-banner");
     if (banner) {
       banner.hidden = false;
-      banner.textContent = `카카오맵 초기화 실패: ${full}`;
+      const help =
+        err?.help ||
+        (err?.code === "KAKAO_SCRIPT_ERROR" ||
+        err?.code === "KAKAO_DOMAIN_MISMATCH" ||
+        err?.failureKind === "DOMAIN_MISMATCH"
+          ? buildKakaoDomainHelp()
+          : "");
+      const kindLine = err?.failureKind ? `[${err.failureKind}] ` : "";
+      banner.textContent = help
+        ? `카카오맵 초기화 실패\n${kindLine}${message}\n\n${help}`
+        : `카카오맵 초기화 실패: ${kindLine}${full}`;
     }
 
     if (mapLocationLabel) {
-      mapLocationLabel.textContent = `카카오맵 오류 · ${message}`;
+      mapLocationLabel.textContent = `카카오맵 · Web 도메인 등록 필요 (${window.location.origin})`;
     }
 
-    showToast(`카카오맵 실패: ${message}`);
+    showToast(`카카오맵: Web 도메인 ${window.location.origin} 등록 확인`);
   }
 
   const mapLayers = {
@@ -1206,25 +1481,26 @@
         };
 
         const onError = (event) => {
-          reject(
-            makeKakaoError(
-              "KAKAO_SCRIPT_ERROR: 기존 script 태그 load error",
-              `${at}:L2-existing.onerror`,
-              {
-                code: "KAKAO_SCRIPT_ERROR",
-                sdkUrl: existing.src,
-                hostname: location.hostname,
-                eventType: event?.type,
-              }
-            )
-          );
+          handleKakaoScriptLoadError(reject, `${at}:L2-existing.onerror`, existing.src, event, existing);
         };
 
         existing.addEventListener("load", onLoad, { once: true });
         existing.addEventListener("error", onError, { once: true });
 
         if (existing.readyState === "complete" || existing.readyState === "loaded") {
-          onLoad();
+          if (isKakaoSdkReady()) {
+            resolve();
+          } else if (window.kakao) {
+            onLoad();
+          } else {
+            handleKakaoScriptLoadError(
+              reject,
+              `${at}:L2-existing-already-failed`,
+              existing.src,
+              null,
+              existing
+            );
+          }
         }
         return;
       }
@@ -1252,19 +1528,7 @@
       };
 
       script.onerror = (event) => {
-        reject(
-          makeKakaoError(
-            "KAKAO_SCRIPT_ERROR: script.onerror — 네트워크/CSP/도메인/키 문제",
-            `${at}:L3-script.onerror`,
-            {
-              code: "KAKAO_SCRIPT_ERROR",
-              sdkUrl: KAKAO_SDK_URL,
-              hostname: location.hostname,
-              protocol: location.protocol,
-              eventType: event?.type,
-            }
-          )
-        );
+        handleKakaoScriptLoadError(reject, `${at}:L3-script.onerror`, KAKAO_SDK_URL, event, script);
       };
 
       document.head.appendChild(script);
@@ -1366,6 +1630,7 @@
     let bootstrapStep = "start";
 
     try {
+      logKakaoSdkConfig("bootstrapKakao:start");
       logKakao("부트스트랩 시작", { hostname: location.hostname, protocol: location.protocol });
 
       bootstrapStep = "injectKakaoSdkScript";
