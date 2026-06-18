@@ -79,7 +79,11 @@ def api_config():
     return jsonify(
         {
             "supabaseUrl": os.environ.get("SUPABASE_URL", ""),
-            "supabaseAnonKey": os.environ.get("SUPABASE_ANON_KEY", ""),
+            "supabaseAnonKey": (
+                os.environ.get("SUPABASE_ANON_KEY")
+                or os.environ.get("SUPABASE_PUBLISHABLE_KEY")
+                or ""
+            ),
         }
     )
 

@@ -70,30 +70,65 @@
     return `${minutes}분 후 도착`;
   }
 
-  async function loadRemoteConfig() {
-    if (configLoaded) return;
-    configLoaded = true;
-    const local = window.TRANSITON_CONFIG || {};
-    if (local.supabaseUrl && local.supabaseAnonKey) return;
-    try {
-      const res = await fetch("/api/config");
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data.supabaseUrl) local.supabaseUrl = data.supabaseUrl;
-      if (data.supabaseAnonKey) local.supabaseAnonKey = data.supabaseAnonKey;
-      window.TRANSITON_CONFIG = local;
-    } catch {
-      /* offline / local dev */
+  function getConfig() {
+    return window.TRANSITON_CONFIG || {};
+  }
+
+  function hasSupabaseConfig(cfg) {
+    const url = (cfg.supabaseUrl || "").trim();
+    const key = (cfg.supabaseAnonKey || cfg.supabasePublishableKey || "").trim();
+    return Boolean(url && key);
+  }
+
+  async function loadRemoteConfig(force = false) {
+    const local = getConfig();
+    if (configLoaded && hasSupabaseConfig(local) && !force) return;
+
+    if (!hasSupabaseConfig(local) || force) {
+      try {
+        const res = await fetch("/api/config");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.supabaseUrl) local.supabaseUrl = String(data.supabaseUrl).trim();
+          if (data.supabaseAnonKey) {
+            local.supabaseAnonKey = String(data.supabaseAnonKey).trim();
+          }
+        }
+      } catch {
+        /* offline / local dev */
+      }
     }
+
+    window.TRANSITON_CONFIG = local;
+    configLoaded = true;
+  }
+
+  function getSupabaseCreateClient() {
+    if (window.supabase?.createClient) {
+      return window.supabase.createClient.bind(window.supabase);
+    }
+    return null;
   }
 
   function initSupabaseClient() {
-    const cfg = window.TRANSITON_CONFIG || {};
-    if (!cfg.supabaseUrl || !cfg.supabaseAnonKey || !window.supabase?.createClient) {
+    const cfg = getConfig();
+    const createClient = getSupabaseCreateClient();
+    const url = (cfg.supabaseUrl || "").trim();
+    const key = (cfg.supabaseAnonKey || cfg.supabasePublishableKey || "").trim();
+
+    if (!url || !key || !createClient) {
       supabase = null;
-      return;
+      return false;
     }
-    supabase = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+
+    try {
+      supabase = createClient(url, key);
+      return true;
+    } catch (err) {
+      console.error("[HomeSafe] Supabase init failed", err);
+      supabase = null;
+      return false;
+    }
   }
 
   function showConfigBanner(show) {
@@ -776,7 +811,10 @@
     document.getElementById("homesafe-add-friend-btn")?.addEventListener("click", addFriendByCode);
     document.getElementById("homesafe-create-group-btn")?.addEventListener("click", createGroup);
     document.getElementById("homesafe-join-group-btn")?.addEventListener("click", joinGroupByCode);
-    document.getElementById("homesafe-refresh")?.addEventListener("click", refreshAll);
+    document.getElementById("homesafe-refresh")?.addEventListener("click", async () => {
+    await refreshSupabaseConnection();
+    await refreshAll();
+  });
     document.getElementById("homesafe-dashboard-back")?.addEventListener("click", closeGroupDashboard);
 
     document.getElementById("homesafe-copy-group-code")?.addEventListener("click", async () => {
@@ -808,19 +846,31 @@
     });
   }
 
+  async function refreshSupabaseConnection() {
+    await loadRemoteConfig(true);
+    const connected = initSupabaseClient();
+    showConfigBanner(!connected);
+    if (connected && !user) {
+      await ensureUser();
+      renderProfile();
+    }
+    return connected;
+  }
+
   async function init(integration) {
     deps = integration;
     bindEvents();
-    await loadRemoteConfig();
-    initSupabaseClient();
-    showConfigBanner(!supabase);
-    await ensureUser();
+    await refreshSupabaseConnection();
+    if (!user) await ensureUser();
     renderProfile();
     activeGroup = loadJson(STORAGE_ACTIVE_GROUP, null);
   }
 
   async function onShowView() {
     if (!deps) return;
+    if (!supabase) {
+      await refreshSupabaseConnection();
+    }
     switchTab("solo");
     await initSoloMap();
     await refreshAll();
