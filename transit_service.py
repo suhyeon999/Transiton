@@ -95,7 +95,7 @@ class TransitService:
         """부산 BIMS 실시간 버스 도착 정보"""
         url = "http://61.43.246.153/openapi-data/service/busanBIMS/stopArr"
         params = {"serviceKey": self.bus_key, "bstopid": bstopid, "_type": "json"}
-        res, diag = self._fetch_json_with_diag("busBIMS", url, params)
+        res, diag = self._fetch_json_with_diag("busBIMS", url, params, timeout=15)
         self.last_diagnostics["bus"] = diag
 
         if not res:
@@ -235,11 +235,9 @@ class TransitService:
     def get_realtime(self):
         bus = self.fetch_bus_api()
         subway = self.fetch_subway_api()
-        using_fallback = False
 
         if not bus:
             bus = self._fallback_bus()
-            using_fallback = True
         else:
             first = bus["arrivals"][0] if bus["arrivals"] else {}
             bus["eta"] = first.get("eta", 15)
@@ -247,13 +245,17 @@ class TransitService:
 
         if not subway:
             subway = self._fallback_subway()
-            using_fallback = True
+
+        bus_ok = bus.get("source") == "api"
+        subway_ok = subway.get("source") == "api"
 
         return {
             "location": DEFAULT_LOCATION,
             "bus": bus,
             "subway": subway,
-            "using_fallback": using_fallback,
+            "bus_ok": bus_ok,
+            "subway_ok": subway_ok,
+            "using_fallback": not bus_ok or not subway_ok,
             "updated_at": datetime.now().strftime("%H:%M:%S"),
             "api_diagnostics": self.last_diagnostics,
         }

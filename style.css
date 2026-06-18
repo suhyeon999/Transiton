@@ -1250,16 +1250,22 @@ ul {
   flex-shrink: 0;
 }
 
+.info-banner--subtle {
+  margin-top: 10px;
+  background: #f8fafc;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
+
+.info-banner--subtle p {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 .alert--warning {
   background: #fef3c7;
   color: #92400e;
-}
-
-#kakao-error-banner {
-  margin: 8px 16px 0;
-  font-size: 0.78rem;
-  line-height: 1.45;
-  white-space: pre-wrap;
 }
 
 /* Saved */

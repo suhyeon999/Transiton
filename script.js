@@ -378,22 +378,6 @@
     if (err?.help) console.error("help:\n" + err.help);
     if (err?.origin) console.error("등록 필요 도메인:", err.origin);
 
-    const banner = document.getElementById("kakao-error-banner");
-    if (banner) {
-      banner.hidden = false;
-      const help =
-        err?.help ||
-        (err?.code === "KAKAO_SCRIPT_ERROR" ||
-        err?.code === "KAKAO_DOMAIN_MISMATCH" ||
-        err?.failureKind === "DOMAIN_MISMATCH"
-          ? buildKakaoDomainHelp()
-          : "");
-      const kindLine = err?.failureKind ? `[${err.failureKind}] ` : "";
-      banner.textContent = help
-        ? `카카오맵 초기화 실패\n${kindLine}${message}\n\n${help}`
-        : `카카오맵 초기화 실패: ${kindLine}${full}`;
-    }
-
     if (mapLocationLabel) {
       mapLocationLabel.textContent = `카카오맵 · Web 도메인 등록 필요 (${window.location.origin})`;
     }
@@ -450,11 +434,16 @@
     if (viewName === "home") relayoutMap();
     if (viewName === "routes") {
       initRouteMap();
+      updateRouteSummary();
       updateMapRoute();
       relayoutRouteMap();
+      if (locationState.destination && !state.routeInfo) {
+        computeRoute();
+      }
     }
     if (viewName === "realtime") loadRealtimeData();
     if (viewName === "golden") loadGoldenAnalysis();
+    updateRouteSummary();
   }
 
   document.querySelectorAll("[data-nav]").forEach((el) => {
@@ -478,9 +467,18 @@
 
   function updateRouteSummary() {
     const from = shortLabel(locationState.current.label);
-    const to = locationState.destination?.name || state.destination;
+    const onRoutes = state.currentView === "routes";
+    const to =
+      onRoutes && locationState.destination?.name
+        ? locationState.destination.name
+        : HOME_DESTINATION;
     if (routeSummaryLabel) routeSummaryLabel.textContent = `${from} → ${to}`;
-    if (routeMapLabel) routeMapLabel.textContent = `${from} → ${to}`;
+    if (routeMapLabel) {
+      routeMapLabel.textContent =
+        onRoutes && locationState.destination?.name
+          ? `${from} → ${locationState.destination.name}`
+          : `${from} → 목적지`;
+    }
   }
 
   function updateOriginField() {
@@ -779,6 +777,34 @@
     if (diagnostics) logApiDiagnostics(diagnostics, "realtime");
   }
 
+  function describeRealtimeFailure(name, diag) {
+    if (!diag || diag.ok) return null;
+    const err = diag.error || "fail";
+    if (name === "bus") {
+      if (err === "TIMEOUT") return "버스: 공공 API 응답 지연(추정값 표시)";
+      if (err.startsWith("HTTP")) return `버스: ${err}(추정값 표시)`;
+      return `버스: 연결 실패(추정값 표시)`;
+    }
+    if (name === "subway") {
+      if (err === "JSON_PARSE_ERROR") return "지하철: API 키·연결 확인 필요(추정값 표시)";
+      if (err === "TIMEOUT") return "지하철: 공공 API 응답 지연(추정값 표시)";
+      return `지하철: 연결 실패(추정값 표시)`;
+    }
+    return null;
+  }
+
+  function formatRealtimeStatus(data) {
+    const busLabel = data.bus_ok ? "버스 실시간" : "버스 추정";
+    const subwayLabel = data.subway_ok ? "지하철 실시간" : "지하철 추정";
+    return `갱신 ${data.updated_at} · ${busLabel} · ${subwayLabel}`;
+  }
+
+  function renderRealtimeFailureHint(name, diagnostics) {
+    const hint = describeRealtimeFailure(name, diagnostics?.[name]);
+    if (!hint) return "";
+    return `<div class="info-banner info-banner--subtle"><p>${hint}</p></div>`;
+  }
+
   function renderBusArrivals(bus, usingFallback) {
     const arrivals = bus?.arrivals || [];
     if (!arrivals.length) {
@@ -795,7 +821,7 @@
           </div>
           <span class="realtime-card__eta">${a.eta}분</span>
         </header>
-        <p class="realtime-card__meta">${a.plate_no ? `차량 ${a.plate_no}` : "실시간 BIMS"}${usingFallback ? " · fallback" : ""}</p>
+        <p class="realtime-card__meta">${a.plate_no ? `차량 ${a.plate_no}` : "실시간 BIMS"}${usingFallback ? " · 추정" : ""}</p>
       </article>`
       )
       .join("");
@@ -817,7 +843,7 @@
           </div>
           <span class="realtime-card__eta">${a.eta}분</span>
         </header>
-        <p class="realtime-card__meta">Humetro 실시간${usingFallback ? " · fallback" : ""}</p>
+        <p class="realtime-card__meta">Humetro 실시간${usingFallback ? " · 추정" : ""}</p>
       </article>`
       )
       .join("");
@@ -849,21 +875,19 @@
       logApiDiagnostics(data.api_diagnostics, "realtime");
 
       if (statusEl) {
-        const fb = data.using_fallback ? " · API 일부 실패(fallback)" : " · BIMS/Humetro";
-        statusEl.textContent = `갱신 ${data.updated_at}${fb}`;
+        statusEl.textContent = formatRealtimeStatus(data);
         statusEl.classList.toggle("api-status--warn", !!data.using_fallback);
       }
 
-      if (busList) busList.innerHTML = renderBusArrivals(data.bus, data.using_fallback);
-      if (subwayList) subwayList.innerHTML = renderSubwayArrivals(data.subway, data.using_fallback);
-
-      if (data.using_fallback && data.api_diagnostics) {
-        const parts = Object.entries(data.api_diagnostics)
-          .filter(([, d]) => !d.ok)
-          .map(([k, d]) => `${k}: ${d.error || "fail"} (HTTP ${d.http_status ?? "?"})`);
-        if (parts.length) {
-          showToast(`API 실패 — ${parts.join(", ")}`);
-        }
+      if (busList) {
+        busList.innerHTML =
+          renderBusArrivals(data.bus, !data.bus_ok) +
+          renderRealtimeFailureHint("bus", data.api_diagnostics);
+      }
+      if (subwayList) {
+        subwayList.innerHTML =
+          renderSubwayArrivals(data.subway, !data.subway_ok) +
+          renderRealtimeFailureHint("subway", data.api_diagnostics);
       }
     } catch (err) {
       logTransitApiError("실시간 로드 실패", err);
@@ -927,7 +951,7 @@
           <p class="golden-card__value">${analysis.arrival_time}</p>
           <p class="golden-card__sub">출발 권장 ${analysis.departure_time}</p>
         </article>
-        ${data.using_fallback ? `<div class="info-banner"><p>API 일부 실패 — fallback 데이터 포함. F12 → api_diagnostics 확인</p></div>` : ""}`;
+        ${data.using_fallback ? `<div class="info-banner info-banner--subtle"><p>일부 공공 API 연결 불안정 — 추정 도착 정보가 포함될 수 있습니다.</p></div>` : ""}`;
     }
     if (gRouteTime) gRouteTime.textContent = route.duration_min ? `약 ${formatDuration(route.duration_min)}` : "—";
     if (gRouteMode) {
@@ -956,16 +980,12 @@
         return;
       }
 
-      const dest = locationState.destination?.name || HOME_DESTINATION;
+      const dest = HOME_DESTINATION;
       const params = new URLSearchParams({
         destination: dest,
         origin_lat: String(locationState.current.lat),
         origin_lng: String(locationState.current.lng),
       });
-      if (locationState.destination) {
-        params.set("dest_lat", String(locationState.destination.lat));
-        params.set("dest_lng", String(locationState.destination.lng));
-      }
 
       const data = await apiFetch(`/api/analysis?${params}`);
       transitAnalysisData = data;
@@ -1026,21 +1046,6 @@
       origin_label: origin.label || MAP_CENTER.label,
     });
     return apiFetch(`/api/route?${params}`);
-  }
-
-  async function autoRecommendHomeRoute() {
-    const home = HOME_DESTINATION;
-    try {
-      await whenKakaoReady();
-      const ok = await setDestination(home, { silent: true });
-      if (!ok) {
-        logKakaoError("자동 귀가 경로 — 목적지 설정 실패", new Error(`geocode failed: ${home}`));
-      }
-    } catch (err) {
-      logKakaoError("자동 귀가 경로 실패", err instanceof Error ? err : new Error(String(err)));
-    }
-    if (apiAvailable === null) await checkApiHealth();
-    if (apiAvailable) await loadGoldenAnalysis();
   }
 
   function renderPlaceholderCard(title, message) {
@@ -1329,10 +1334,12 @@
     };
 
     renderRouteResult();
-    updateMapRoute();
-    updateHomeRoutePreview();
+    if (state.currentView === "routes") {
+      updateMapRoute();
+    } else if (routeMap) {
+      renderMapLayer(routeMap, "route");
+    }
     startRouteLiveTimer();
-    if (apiAvailable) loadGoldenAnalysis();
   }
 
   function renderRouteResult() {
@@ -1416,23 +1423,6 @@
         banner.textContent =
           "백엔드 미연결 — python3 smarttransit.py 실행 후 대중교통 상세 경로를 확인하세요.";
       }
-    }
-  }
-
-  function updateHomeRoutePreview() {
-    const info = state.routeInfo;
-    const homeTime = document.getElementById("home-route-time");
-    const homeMode = document.getElementById("home-route-mode");
-    const homePath = document.getElementById("home-route-path");
-    if (!info) return;
-    if (homeTime) homeTime.textContent = `약 ${formatDuration(info.durationMin)}`;
-    if (homeMode) {
-      homeMode.textContent = info.modeLabel
-        ? `${info.modeLabel} · 도착 ${info.arrivalTime}`
-        : formatDistance(info.distance);
-    }
-    if (homePath) {
-      homePath.textContent = `${info.originLabel} → ${info.destName}`;
     }
   }
 
@@ -1688,12 +1678,14 @@
     hideAutocomplete();
     saveRecentSearch(dest.name);
     updateRouteSummary();
-    updateMapRoute();
 
-    try {
-      await computeRoute();
-    } catch (routeErr) {
-      console.warn("[경로 계산]", routeErr);
+    if (state.currentView === "routes" || navigate) {
+      updateMapRoute();
+      try {
+        await computeRoute();
+      } catch (routeErr) {
+        console.warn("[경로 계산]", routeErr);
+      }
     }
 
     if (!silent) showToast(`${dest.name}(으)로 경로를 설정했습니다`);
@@ -1712,6 +1704,8 @@
     if (destinationInput) destinationInput.value = "";
     locationState.destination = null;
     state.routeInfo = null;
+    state.destination = HOME_DESTINATION;
+    updateRouteSummary();
     updateMapRoute();
     destinationInput?.focus();
   });
@@ -1822,7 +1816,7 @@
       attachInfoWindow(map, startMarker, "출발", shortLabel(locationState.current.label))
     );
 
-    if (locationState.destination) {
+    if (locationState.destination && layerKey === "route") {
       const endMarker = new kakao.maps.Marker({
         map,
         position: toLatLng(locationState.destination),
@@ -1867,7 +1861,9 @@
           ? `현재 위치 · ${shortLabel(locationState.current.label)}`
           : `기본 위치 · ${shortLabel(locationState.current.label)}`;
     }
-    if (routeMap) renderMapLayer(routeMap, "route");
+    if (routeMap && state.currentView === "routes") {
+      renderMapLayer(routeMap, "route");
+    }
   }
 
   async function applyCurrentLocation(point, source) {
@@ -1875,7 +1871,9 @@
     updateOriginField();
     updateRouteSummary();
     await loadNearbyStops();
-    if (locationState.destination) await computeRoute();
+    if (state.currentView === "routes" && locationState.destination) {
+      await computeRoute();
+    }
   }
 
   function reverseGeocodeCurrent(lat, lng) {
@@ -2158,13 +2156,9 @@
       bootstrapStep = "done";
       logKakao("부트스트랩 성공", { at: "script.js:bootstrapKakao:done" });
 
-      const banner = document.getElementById("kakao-error-banner");
-      if (banner) banner.hidden = true;
-
       kakaoReadyResolve(true);
       requestCurrentLocation(false);
       await checkApiHealth();
-      await autoRecommendHomeRoute();
     } catch (err) {
       kakaoBootstrapError = err instanceof Error ? err : makeKakaoError(String(err), "script.js:bootstrapKakao");
       kakaoBootstrapError.bootstrapStep = bootstrapStep;
