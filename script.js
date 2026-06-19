@@ -1204,14 +1204,16 @@
 
   function formatRealtimeStatus(data) {
     const busLabel = data.bus_ok ? "버스 실시간" : "버스 추정";
-    const subwayLabel = data.subway_ok ? "지하철 실시간" : "지하철 추정";
+    let subwayLabel = "지하철 추정";
+    if (data.subway_ok) {
+      subwayLabel =
+        data.subway?.source === "schedule" ? "지하철 시각표" : "지하철 실시간";
+    }
     return `갱신 ${data.updated_at} · ${busLabel} · ${subwayLabel}`;
   }
 
-  function renderRealtimeFailureHint(name, diagnostics) {
-    const hint = describeRealtimeFailure(name, diagnostics?.[name]);
-    if (!hint) return "";
-    return `<div class="info-banner info-banner--subtle"><p>${hint}</p></div>`;
+  function renderRealtimeFailureHint() {
+    return "";
   }
 
   function renderBusArrivals(bus, usingFallback) {
@@ -1252,7 +1254,7 @@
           </div>
           <span class="realtime-card__eta">${a.eta}분</span>
         </header>
-        <p class="realtime-card__meta">Humetro 실시간${usingFallback ? " · 추정" : ""}</p>
+        <p class="realtime-card__meta">${subway.source === "schedule" ? "열차 시각표 기준" : "Humetro 실시간"}${usingFallback ? " · 추정" : ""}</p>
       </article>`
       )
       .join("");

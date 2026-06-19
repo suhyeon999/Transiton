@@ -3,9 +3,11 @@ TransitON — 부산 버스·지하철 공통 서비스 로직
 Flask(smarttransit.py) · Vercel Serverless(api/) 공용
 """
 
+import json
 import math
 import os
 import traceback
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -62,8 +64,9 @@ AUTH_KEY_SUBWAY = os.environ.get("AUTH_KEY_SUBWAY") or AUTH_KEY
 def _decode_key(raw):
     return requests.utils.unquote(raw) if raw else ""
 
-BUS_STOP_ID = "505530000"  # 경성대부경대역 정류장
-SUBWAY_STATION_ID = "212"  # 경성대부경대역 (2호선)
+BUS_STOP_ID = "199480301"  # 경성대.부경대역 (BIMS 정류소 ID)
+SUBWAY_STATION_ID = "212"  # 경성대·부경대역 (2호선 역번호 = Humetro scode)
+BUSAN_BIMS_BASE = "https://apis.data.go.kr/6260000/BusanBIMS"
 DEFAULT_LOCATION = {
     "lat": 35.1341,
     "lon": 129.0963,
@@ -92,6 +95,37 @@ class TransitService:
         self.cur_lon = DEFAULT_LOCATION["lon"]
         self.last_diagnostics = {}
 
+    def _xml_node_to_obj(self, elem):
+        children = list(elem)
+        if not children:
+            return (elem.text or "").strip()
+        obj = {}
+        for child in children:
+            val = self._xml_node_to_obj(child)
+            tag = child.tag
+            if tag in obj:
+                if not isinstance(obj[tag], list):
+                    obj[tag] = [obj[tag]]
+                obj[tag].append(val)
+            else:
+                obj[tag] = val
+        return obj
+
+    def _parse_api_payload(self, text):
+        body = (text or "").strip()
+        if not body or body.lstrip().startswith("<!"):
+            return None, "JSON_PARSE_ERROR"
+        if body.startswith("<"):
+            try:
+                root = ET.fromstring(body)
+                return {root.tag: self._xml_node_to_obj(root)}, None
+            except ET.ParseError as exc:
+                return None, str(exc)
+        try:
+            return json.loads(body), None
+        except ValueError as exc:
+            return None, str(exc)
+
     def _fetch_json_with_diag(self, name, url, params, timeout=8):
         """외부 API 호출 + 실패 원인 진단 정보 반환."""
         diag = {
@@ -112,10 +146,9 @@ class TransitService:
             if res.status_code != 200:
                 diag["error"] = f"HTTP {res.status_code}"
                 return None, diag
-            try:
-                data = res.json()
-            except ValueError as exc:
-                diag["parse_error"] = str(exc)
+            data, parse_error = self._parse_api_payload(res.text)
+            if parse_error:
+                diag["parse_error"] = parse_error
                 diag["error"] = "JSON_PARSE_ERROR"
                 return None, diag
             diag["ok"] = True
@@ -131,16 +164,7 @@ class TransitService:
             diag["trace"] = traceback.format_exc()[:400]
             return None, diag
 
-    def fetch_bus_api(self, bstopid=BUS_STOP_ID):
-        """부산 BIMS 실시간 버스 도착 정보"""
-        url = "http://61.43.246.153/openapi-data/service/busanBIMS/stopArr"
-        params = {"serviceKey": self.bus_key, "bstopid": bstopid, "_type": "json"}
-        res, diag = self._fetch_json_with_diag("busBIMS", url, params, timeout=15)
-        self.last_diagnostics["bus"] = diag
-
-        if not res:
-            return None
-
+    def _parse_bus_arrivals(self, res, bstopid, diag):
         try:
             header = res.get("response", {}).get("header", {})
             if header.get("resultCode") not in (None, "00", "0"):
@@ -159,21 +183,27 @@ class TransitService:
             bus_list = raw if isinstance(raw, list) else [raw]
             arrivals = []
             for bus in bus_list[:8]:
-                min1 = bus.get("min1")
+                min1 = bus.get("min1") or bus.get("arrmin") or bus.get("remainMin")
                 try:
                     eta = int(min1) if min1 not in (None, "") else 0
                 except (TypeError, ValueError):
                     eta = 0
                 arrivals.append(
                     {
-                        "line_no": str(bus.get("lineNo", "")),
+                        "line_no": str(bus.get("lineNo") or bus.get("lineno") or bus.get("busNo") or ""),
                         "eta": eta,
-                        "destination": bus.get("station1") or bus.get("stationNm") or "",
-                        "plate_no": bus.get("plateNo", ""),
+                        "destination": bus.get("station1") or bus.get("stationNm") or bus.get("endnodenm") or "",
+                        "plate_no": bus.get("plateNo") or bus.get("plateno") or "",
                     }
                 )
 
+            if not any(a["line_no"] for a in arrivals):
+                diag["ok"] = False
+                diag["error"] = "BIMS_EMPTY_ARRIVALS"
+                return None
+
             diag["item_count"] = len(arrivals)
+            diag["ok"] = True
             return {
                 "type": "버스",
                 "stop_id": bstopid,
@@ -187,58 +217,189 @@ class TransitService:
             diag["error"] = f"PARSE_ERROR: {exc}"
             return None
 
-    def fetch_subway_api(self, station_id=SUBWAY_STATION_ID):
-        """부산교통공사 Humetro 실시간 지하철 도착 정보"""
-        url = "http://data.humetro.busan.kr/cyber/service/arrival/getArrivalList"
-        params = {"serviceKey": self.subway_key, "stationId": station_id, "act": "json"}
-        res, diag = self._fetch_json_with_diag("subwayHumetro", url, params)
-        self.last_diagnostics["subway"] = diag
+    def fetch_bus_api(self, bstopid=BUS_STOP_ID):
+        """부산 BIMS 실시간 버스 도착 정보 (공공데이터포털 BusanBIMS)"""
+        attempts = [
+            (
+                f"{BUSAN_BIMS_BASE}/getBusArrivalList",
+                {
+                    "serviceKey": self.bus_key,
+                    "bstopid": bstopid,
+                    "pageNo": 1,
+                    "numOfRows": 10,
+                    "resultType": "json",
+                },
+            ),
+            (
+                f"{BUSAN_BIMS_BASE}/getBusStopArrByBstopid",
+                {
+                    "serviceKey": self.bus_key,
+                    "bstopid": bstopid,
+                    "pageNo": 1,
+                    "numOfRows": 10,
+                    "resultType": "json",
+                },
+            ),
+        ]
+        last_diag = None
+        for url, params in attempts:
+            res, diag = self._fetch_json_with_diag("busBIMS", url, params, timeout=10)
+            last_diag = diag
+            if not res:
+                continue
+            parsed = self._parse_bus_arrivals(res, bstopid, diag)
+            if parsed:
+                self.last_diagnostics["bus"] = diag
+                return parsed
 
-        if not res:
-            return None
+        self.last_diagnostics["bus"] = last_diag or {}
+        return None
 
-        try:
+    def _subway_day_code(self):
+        wd = now_kst().weekday()
+        if wd < 5:
+            return 1
+        if wd == 5:
+            return 2
+        return 3
+
+    def _minutes_until(self, hour, minute):
+        now = now_kst()
+        target = now.replace(hour=int(hour), minute=int(minute), second=0, microsecond=0)
+        if target < now:
+            target += timedelta(days=1)
+        return max(0, int((target - now).total_seconds() // 60))
+
+    def _fetch_subway_realtime(self, station_id):
+        """Humetro 실시간 도착 API (실패 시 None)."""
+        urls = [
+            "https://data.humetro.busan.kr/cyber/service/arrival/getArrivalList",
+            "http://data.humetro.busan.kr/cyber/service/arrival/getArrivalList",
+        ]
+        param_sets = [
+            {"serviceKey": self.subway_key, "stationId": station_id, "act": "json"},
+            {"serviceKey": self.subway_key, "scode": station_id, "act": "json"},
+        ]
+        last_diag = None
+        for url in urls:
+            for params in param_sets:
+                res, diag = self._fetch_json_with_diag("subwayHumetro", url, params, timeout=8)
+                last_diag = diag
+                if not res:
+                    continue
+                header = res.get("response", {}).get("header", {})
+                if header.get("resultCode") not in (None, "00", "0"):
+                    diag["ok"] = False
+                    diag["error"] = f"HUMETRO_RESULT_{header.get('resultCode')}"
+                    continue
+                raw_items = res.get("response", {}).get("body", {}).get("item", [])
+                if not raw_items:
+                    continue
+                items = raw_items if isinstance(raw_items, list) else [raw_items]
+                arrivals = []
+                for item in items[:6]:
+                    try:
+                        eta_sec = int(item.get("arrivalTime", 0))
+                    except (TypeError, ValueError):
+                        eta_sec = 0
+                    eta_min = max(0, eta_sec // 60)
+                    direction = (
+                        item.get("trainLineNm")
+                        or item.get("subwayHeading")
+                        or item.get("upDown")
+                        or "운행"
+                    )
+                    arrivals.append(
+                        {"direction": direction, "eta": eta_min, "arrival_sec": eta_sec}
+                    )
+                if arrivals:
+                    diag["item_count"] = len(arrivals)
+                    diag["ok"] = True
+                    return arrivals, diag
+        return None, last_diag
+
+    def _fetch_subway_schedule(self, scode=SUBWAY_STATION_ID):
+        """실시간 API 불가 시 열차 시각표 기반 다음 열차 추정."""
+        url = "http://data.humetro.busan.kr/voc/api/open_api_process.tnn"
+        now = now_kst()
+        stime = now.strftime("%H%M")
+        day = self._subway_day_code()
+        directions = [(0, "장산 방면"), (1, "양산 방면")]
+        arrivals = []
+        last_diag = None
+
+        for updown, label in directions:
+            params = {
+                "serviceKey": self.subway_key,
+                "act": "json",
+                "scode": scode,
+                "day": day,
+                "updown": updown,
+                "stime": stime,
+                "enum": 2,
+            }
+            res, diag = self._fetch_json_with_diag("subwaySchedule", url, params, timeout=8)
+            last_diag = diag
+            if not res:
+                continue
+            header = res.get("response", {}).get("header", {})
+            if header.get("resultCode") not in (None, "00", "0"):
+                diag["ok"] = False
+                diag["error"] = f"HUMETRO_RESULT_{header.get('resultCode')}"
+                continue
             raw_items = res.get("response", {}).get("body", {}).get("item", [])
             if not raw_items:
-                diag["ok"] = False
-                diag["error"] = "HUMETRO_EMPTY_ITEMS"
-                diag["body_preview"] = str(res)[:600]
-                return None
-
+                continue
             items = raw_items if isinstance(raw_items, list) else [raw_items]
-            arrivals = []
-            for item in items[:6]:
-                try:
-                    eta_sec = int(item.get("arrivalTime", 0))
-                except (TypeError, ValueError):
-                    eta_sec = 0
-                eta_min = max(0, eta_sec // 60)
-                direction = (
-                    item.get("trainLineNm")
-                    or item.get("subwayHeading")
-                    or item.get("upDown")
-                    or "운행"
-                )
-                arrivals.append(
-                    {"direction": direction, "eta": eta_min, "arrival_sec": eta_sec}
-                )
+            item = items[0]
+            try:
+                hour = int(item.get("hour", 0))
+                minute = int(item.get("time", 0))
+            except (TypeError, ValueError):
+                continue
+            eta_min = self._minutes_until(hour, minute)
+            direction = item.get("endname") or label
+            arrivals.append(
+                {
+                    "direction": direction,
+                    "eta": eta_min,
+                    "arrival_sec": eta_min * 60,
+                }
+            )
 
-            diag["item_count"] = len(arrivals)
-            first_eta = arrivals[0]["eta"] if arrivals else 0
-            return {
-                "type": "지하철",
-                "station_id": station_id,
-                "stop_name": "경성대부경대역(지하철)",
-                "line": "2호선",
-                "dist": 500,
-                "eta": first_eta,
-                "arrivals": arrivals,
-                "source": "api",
-            }
-        except Exception as exc:
-            diag["ok"] = False
-            diag["error"] = f"PARSE_ERROR: {exc}"
+        if not arrivals:
+            return None, last_diag
+
+        last_diag["ok"] = True
+        last_diag["item_count"] = len(arrivals)
+        last_diag["mode"] = "schedule"
+        return arrivals, last_diag
+
+    def fetch_subway_api(self, station_id=SUBWAY_STATION_ID):
+        """부산교통공사 지하철 — 실시간 우선, 실패 시 시각표 기반"""
+        arrivals, diag = self._fetch_subway_realtime(station_id)
+        source = "api"
+        if not arrivals:
+            arrivals, schedule_diag = self._fetch_subway_schedule(station_id)
+            diag = schedule_diag or diag
+            source = "schedule"
+
+        self.last_diagnostics["subway"] = diag or {}
+
+        if not arrivals:
             return None
+
+        first_eta = arrivals[0]["eta"] if arrivals else 0
+        return {
+            "type": "지하철",
+            "station_id": station_id,
+            "stop_name": "경성대부경대역(지하철)",
+            "line": "2호선",
+            "dist": 500,
+            "eta": first_eta,
+            "arrivals": arrivals,
+            "source": source,
+        }
 
     def _fallback_bus(self):
         return {
@@ -287,7 +448,7 @@ class TransitService:
             subway = self._fallback_subway()
 
         bus_ok = bus.get("source") == "api"
-        subway_ok = subway.get("source") == "api"
+        subway_ok = subway.get("source") in ("api", "schedule")
 
         return {
             "location": DEFAULT_LOCATION,
